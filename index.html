@@ -361,6 +361,8 @@
         let orientationInitial = null;
         let gyroOffsetX = 0;
         let gyroOffsetY = 0;
+        let motionOffsetX = 0;
+        let motionOffsetY = 0;
         let ringsLeft2D = 3;
 
         // WebXR & ThreeJS Variables
@@ -422,6 +424,17 @@
                 } catch (e) { console.warn("Gyro permission denied", e); }
             } else {
                 window.addEventListener('deviceorientation', handleOrientation);
+            }
+
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const motionPermission = await DeviceMotionEvent.requestPermission();
+                    if (motionPermission === 'granted') {
+                        window.addEventListener('devicemotion', handleMotion);
+                    }
+                } catch (e) { console.warn("Motion permission denied", e); }
+            } else {
+                window.addEventListener('devicemotion', handleMotion);
             }
 
             runLegacyScanSequence();
@@ -769,7 +782,26 @@
             gyroOffsetX = -dGamma * 20; 
             gyroOffsetY = -dBeta * 20; 
             
-            arTargetElement.style.transform = `translate(calc(-50% + ${gyroOffsetX}px), calc(-50% + ${gyroOffsetY}px)) perspective(500px) rotateY(${currentTargetRotationY}deg) rotateX(${currentTargetRotationX}deg) scale(${1/arTargetDepth})`;
+            updateTargetTransform();
+        }
+
+        // Device Motion tracking for subtle acceleration parallax
+        function handleMotion(event) {
+            if (!isARActive || useWebXR) return;
+            const acc = event.acceleration || event.accelerationIncludingGravity;
+            if (!acc) return;
+            
+            // Add a slight translation based on instant acceleration to simulate physical bump/movement
+            motionOffsetX = (acc.x || 0) * -3;
+            motionOffsetY = (acc.y || 0) * 3;
+            
+            updateTargetTransform();
+        }
+
+        function updateTargetTransform() {
+            const totalX = gyroOffsetX + motionOffsetX;
+            const totalY = gyroOffsetY + motionOffsetY;
+            arTargetElement.style.transform = `translate(calc(-50% + ${totalX}px), calc(-50% + ${totalY}px)) perspective(500px) rotateY(${currentTargetRotationY}deg) rotateX(${currentTargetRotationX}deg) scale(${1/arTargetDepth})`;
         }
 
         // --- Frisbee Throwing Mechanics ---
@@ -852,8 +884,10 @@
             orientationInitial = null;
             gyroOffsetX = 0;
             gyroOffsetY = 0;
+            motionOffsetX = 0;
+            motionOffsetY = 0;
             
-            arTargetElement.style.transform = `translate(-50%, -50%) perspective(500px) rotateY(${currentTargetRotationY}deg) rotateX(${currentTargetRotationX}deg) scale(${scale})`;
+            updateTargetTransform();
         }
 
         function updatePowerMeter(powerPercent) {
@@ -954,8 +988,8 @@
                 // Check if hit the target meter
                 if (isHit) {
                     // Perfect hit: fly straight into the hole
-                    transformX = `calc(-50% + ${arTargetLeft - 50}vw + ${gyroOffsetX}px)`;
-                    transformY = `calc(-50% + ${arTargetTop - 50}vh + ${gyroOffsetY}px)`;
+                    transformX = `calc(-50% + ${arTargetLeft - 50}vw + ${gyroOffsetX + motionOffsetX}px)`;
+                    transformY = `calc(-50% + ${arTargetTop - 50}vh + ${gyroOffsetY + motionOffsetY}px)`;
                     finalScale = 0.15 / arTargetDepth; // Scale down significantly based on target depth
                 } else {
                     // Miss: travel straight down the middle towards the mid horizon line vanishing point
