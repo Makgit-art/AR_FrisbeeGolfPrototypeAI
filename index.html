@@ -208,6 +208,28 @@
             </button>
         </div>
 
+        <!-- Simulated Image Scanner UI -->
+        <div id="scanner-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 120; flex-direction: column; justify-content: center; align-items: center; pointer-events: none;">
+            <div style="border: 4px dashed #74ED63; width: 250px; height: 250px; border-radius: 20px; position: relative; box-shadow: 0 0 20px rgba(116, 237, 99, 0.3); animation: pulse 2s infinite;">
+                <div style="position: absolute; top: -40px; left: 0; width: 100%; text-align: center; color: #74ED63; font-weight: bold; font-family: sans-serif; font-size: 1.2rem; text-shadow: 2px 2px 4px black; -webkit-text-stroke: 1px black;">SCANNING...</div>
+                <div style="position: absolute; bottom: -40px; left: 0; width: 100%; text-align: center; color: white; font-family: sans-serif; font-size: 0.9rem; text-shadow: 1px 1px 2px black;">Align marker in view</div>
+            </div>
+            
+            <!-- Reference Image for the User -->
+            <div style="position: absolute; bottom: 100px; right: 20px; display: flex; flex-direction: column; align-items: center;">
+                <span style="color: white; font-family: sans-serif; font-size: 0.8rem; text-shadow: 1px 1px 2px black; margin-bottom: 5px;">Target Marker</span>
+                <img src="Scannable_Reticle.png" alt="Reticle Reference" style="width: 80px; height: 80px; border: 2px solid white; border-radius: 10px; background: rgba(0,0,0,0.5); object-fit: contain;">
+            </div>
+        </div>
+
+        <style>
+            @keyframes pulse {
+                0% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
+                50% { border-color: rgba(116, 237, 99, 0.3); box-shadow: 0 0 10px rgba(116, 237, 99, 0.1); }
+                100% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
+            }
+        </style>
+
         <!-- Bottom Slider -->
         <div id="bottom-slider" class="slider-container interactive-element" style="opacity: 0;">
             <div class="slider-end-mark"></div>
@@ -254,9 +276,7 @@
         let cameraYaw = 0;
         let cameraPitch = 0;
 
-        // Raycaster for surface/arena placement
-        const raycaster = new THREE.Raycaster();
-        let arenaSurfaces = [];
+        let isScanningMarker = false;
 
         async function startCameraFeed() {
             const video = document.getElementById('camera-feed');
@@ -288,13 +308,8 @@
                 initThreeJS();
             }
 
-            // Reveal UI
-            document.getElementById('top-banner').style.opacity = '1';
-            document.getElementById('bottom-slider').style.opacity = '1';
             isGameActive = true;
-
-            randomizeTargetLine();
-            spawnTargetInArena();
+            startScanningForReticle();
         }
 
         function initThreeJS() {
@@ -327,8 +342,8 @@
             rimLight.position.set(-2, 2.5, -1);
             scene.add(rimLight);
 
-            // Build 3D Arena Room (within 3 feet / ~0.9144m radius)
-            buildArenaSurfaces();
+            environmentGroup = new THREE.Group();
+            scene.add(environmentGroup);
 
             // Build Reusable 10x10 Target Template
             buildTargetTemplate();
@@ -390,7 +405,7 @@
             const borderMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
             const borderMesh = new THREE.Mesh(borderGeo, borderMat);
             borderMesh.name = 'border';
-            targetTemplateMesh.add(borderMesh);
+            scene.add(borderMesh);
         }
 
         function buildFrisbeeMesh() {
@@ -432,48 +447,35 @@
             scene.add(frisbeeMesh);
         }
 
-        function spawnTargetInArena() {
+        function startScanningForReticle() {
+            isScanningMarker = true;
+            document.getElementById('top-banner').style.opacity = '0';
+            document.getElementById('bottom-slider').style.opacity = '0';
+            document.getElementById('scanner-ui').style.display = 'flex';
+
+            // Simulate the time it takes to detect "Scannable_Reticle.png"
+            setTimeout(() => {
+                if (!isGameActive || isGameOver) return;
+                
+                document.getElementById('scanner-ui').style.display = 'none';
+                document.getElementById('top-banner').style.opacity = '1';
+                document.getElementById('bottom-slider').style.opacity = '1';
+                isScanningMarker = false;
+                
+                spawnTargetOnReticle();
+                randomizeTargetLine();
+            }, 3000); // 3 second scan delay
+        }
+
+        function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
-            // Cast rays within the playable vertical zone (between Top Banner and Bottom Power Meter)
-            // and within 3 feet (0.9144m) of the camera
-            for (let attempt = 0; attempt < 25; attempt++) {
-                const ndcX = (Math.random() - 0.5) * 1.1; // Horizontal spread
-                const ndcY = (Math.random() - 0.5) * 0.75; // Safe middle vertical band (-0.375 to +0.375)
-
-                raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-                const hits = raycaster.intersectObjects(arenaSurfaces, false);
-
-                if (hits.length > 0) {
-                    const hit = hits[0];
-                    // Enforce 3-foot (0.9144m) max distance from camera
-                    if (hit.distance <= 0.9144) {
-                        const targetClone = targetTemplateMesh.clone();
-                        
-                        // Offset slightly off the wall surface so it never z-fights
-                        const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-                        targetClone.position.copy(hit.point).addScaledVector(normal, 0.02);
-                        targetClone.lookAt(camera.position);
-
-                        // Store intact rings from outermost to innermost
-                        const outer = targetClone.getObjectByName('outer');
-                        const middle = targetClone.getObjectByName('middle');
-                        const inner = targetClone.getObjectByName('inner');
-                        targetClone.userData.rings = [outer, middle, inner].filter(Boolean);
-
-                        scene.add(targetClone);
-                        activeTargets.push(targetClone);
-                        currentTarget = targetClone;
-                        return;
-                    }
-                }
-            }
-
-            // Guaranteed fallback spawn 2.5 feet (0.76m) directly in front of camera
+            // Spawn directly where the camera is currently looking to simulate locking onto the scanned reticle
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const fallbackPos = camera.position.clone().addScaledVector(forward, 0.76);
+            const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // Exactly 3 feet away
+            
             const targetClone = targetTemplateMesh.clone();
-            targetClone.position.copy(fallbackPos);
+            targetClone.position.copy(scanPos);
             targetClone.lookAt(camera.position);
 
             const outer = targetClone.getObjectByName('outer');
@@ -487,14 +489,14 @@
         }
 
         function startChargingFrisbee() {
-            if (isGameOver || !isGameActive || frisbeeActive) return;
+            if (isGameOver || !isGameActive || frisbeeActive || isScanningMarker) return;
             isCharging = true;
             currentPower = 0;
             powerDirection = 1;
         }
 
         function releaseFrisbee() {
-            if (!isGameActive || isGameOver || frisbeeActive) return;
+            if (!isGameActive || isGameOver || frisbeeActive || isScanningMarker) return;
 
             const diff = Math.abs(currentPower - targetPower);
             const isHit = diff <= tolerance;
@@ -547,8 +549,8 @@
                 if (currentTarget === targetObj) {
                     currentTarget = null;
                 }
-                randomizeTargetLine();
-                spawnTargetInArena();
+                // Target fully destroyed, scan for reticle again
+                startScanningForReticle();
             } else {
                 randomizeTargetLine();
             }
