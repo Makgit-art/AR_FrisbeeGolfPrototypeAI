@@ -6,6 +6,7 @@
     <title>Hole in the Wall - 3D Three.js</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Shrikhand&display=swap');
 
@@ -277,6 +278,7 @@
         let cameraPitch = 0;
 
         let isScanningMarker = false;
+        let controls; // Visual-Inertial Tracker
 
         async function startCameraFeed() {
             const video = document.getElementById('camera-feed');
@@ -301,6 +303,18 @@
                 button.style.opacity = '0';
                 button.style.pointerEvents = 'none';
             }, 100);
+
+            // Request Device Orientation Permission for Visual-Inertial Tracking (iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        console.warn('Device orientation permission not granted for visual-inertial tracking.');
+                    }
+                } catch (error) {
+                    console.error('Error requesting device orientation permission:', error);
+                }
+            }
 
             await startCameraFeed();
 
@@ -344,6 +358,9 @@
 
             environmentGroup = new THREE.Group();
             scene.add(environmentGroup);
+
+            // Initialize Device Orientation Tracking for AR feel
+            controls = new THREE.DeviceOrientationControls(camera);
 
             // Build Reusable 10x10 Target Template
             buildTargetTemplate();
@@ -637,6 +654,11 @@
                 updatePowerMeter(currentPower);
             }
 
+            // Apply Visual-Inertial Tracking to Camera
+            if (controls) {
+                controls.update();
+            }
+
             // Update 3D Frisbee Flight & Collision Detection
             if (frisbeeActive && frisbeeMesh) {
                 frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
@@ -695,15 +717,18 @@
             const dy = e.clientY - lastPointerPos.y;
             lastPointerPos = { x: e.clientX, y: e.clientY };
 
-            // Rotate camera smoothly within arena bounds
+            // Manual drag-look is overridden by the device's visual-inertial tracking, 
+            // but we maintain the state for desktop testing fallback.
             cameraYaw -= dx * 0.0035;
             cameraPitch -= dy * 0.0035;
 
             cameraYaw = Math.max(-0.85, Math.min(0.85, cameraYaw));
             cameraPitch = Math.max(-0.45, Math.min(0.45, cameraPitch));
-
-            camera.rotation.y = cameraYaw;
-            camera.rotation.x = cameraPitch;
+            
+            if (!controls || !controls.deviceOrientation || controls.deviceOrientation.alpha === null) {
+                camera.rotation.y = cameraYaw;
+                camera.rotation.x = cameraPitch;
+            }
         }
 
         function handlePointerUp() {
