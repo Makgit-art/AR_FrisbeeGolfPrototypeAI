@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hole in the Wall - AR UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Shrikhand&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000; /* Start with solid black background */
+            font-family: 'Shrikhand', Georgia, serif; 
+        }
+
+        /* Camera Feed Background */
+        #camera-feed {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            opacity: 0; /* Hidden initially */
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        /* UI Layer Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 40px 20px 60px 20px;
+            pointer-events: none; /* Let touches pass through to camera if needed */
+        }
+
+        /* Make specific UI elements interactive */
+        .interactive-element {
+            pointer-events: auto;
+        }
+
+        /* Custom Text Outline Utility */
+        .text-outline-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .text-outline-bg {
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 1;
+        }
+
+        .text-outline-fg {
+            position: relative;
+            z-index: 2;
+            color: white;
+        }
+
+        /* Top Banner Styles */
+        .banner-container {
+            background-color: #B0B0B0;
+            border: 4px solid black;
+            border-radius: 20px;
+            padding: 8px 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            pointer-events: auto;
+            position: relative;
+            z-index: 100;
+        }
+
+        .banner-text-bg {
+            -webkit-text-stroke: 10px #8B5CF6; /* Purple outline */
+            color: #8B5CF6;
+        }
+
+        /* Center Button Styles */
+        .scan-button {
+            background: linear-gradient(135deg, #74ED63 0%, #C4D942 100%);
+            border: 4px solid black;
+            border-radius: 20px;
+            padding: 12px 40px;
+            box-shadow: 0 6px 10px rgba(0,0,0,0.3);
+            cursor: pointer;
+            opacity: 1; /* Visible initially */
+            transition: opacity 0.5s ease-in-out, transform 0.1s;
+        }
+        
+        .scan-button:active {
+            transform: scale(0.95);
+        }
+
+        .scan-text-bg {
+            -webkit-text-stroke: 10px #246B3E; /* Dark green outline */
+            color: #246B3E;
+        }
+
+        /* Bottom Slider Styles */
+        .slider-container {
+            background-color: #B0B0B0;
+            border: 4px solid black;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 400px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            position: relative;
+            pointer-events: auto;
+            z-index: 100;
+        }
+
+        .slider-end-mark {
+            width: 4px;
+            height: 32px;
+            background-color: black;
+        }
+
+        .slider-track-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            position: relative;
+            height: 100%;
+        }
+
+        .slider-track-left {
+            height: 8px;
+            width: 0%; /* Start at 0 power */
+            background-color: #D282FF;
+            border-top: 2px solid black;
+            border-bottom: 2px solid black;
+        }
+
+        .slider-track-right {
+            height: 10px;
+            width: 100%;
+            background-color: black;
+        }
+
+        .slider-target-line {
+            width: 6px;
+            height: 40px;
+            background-color: #74ED63;
+            position: absolute;
+            left: 50%; /* Will be set by JS */
+            transform: translateX(-50%);
+            z-index: 20;
+        }
+
+        /* Floating Ring Target Styles */
+        .target-ring {
+            position: absolute;
+            border-radius: 50%;
+            background-color: transparent;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 5px 15px rgba(0,0,0,0.5);
+            transition: border-color 0.3s;
+        }
+
+        .ring-outer-red {
+            width: 10rem; height: 10rem; /* Consistent 10x10 sizing */
+            top: 0; left: 0;
+            border: 1.5rem solid #ff0000;
+        }
+
+        .ring-white { 
+            width: 7rem; height: 7rem;
+            top: 1.5rem; left: 1.5rem;
+            border: 1.5rem solid #ffffff; 
+        }
+
+        .ring-red-inner { 
+            width: 4rem; height: 4rem;
+            top: 3rem; left: 3rem;
+            border: 1.5rem solid #ff0000; 
+        }
+
+        /* Scanner Overlay Styles */
+        #scanner-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 8;
+            display: none;
+            pointer-events: none;
+        }
+
+        .scanner-brackets {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%; height: 60%;
+            border: 2px solid rgba(116, 237, 99, 0.3);
+            border-radius: 20px;
+        }
+
+        .scanner-brackets::before, .scanner-brackets::after {
+            content: '';
+            position: absolute;
+            width: 50px; height: 50px;
+            border-color: #74ED63;
+            border-style: solid;
+        }
+
+        .scanner-brackets::before {
+            top: -2px; left: -2px;
+            border-width: 6px 0 0 6px;
+            border-top-left-radius: 20px;
+        }
+
+        .scanner-brackets::after {
+            bottom: -2px; right: -2px;
+            border-width: 0 6px 6px 0;
+            border-bottom-right-radius: 20px;
+        }
+
+        .laser-line {
+            position: absolute;
+            left: 0; width: 100%; height: 3px;
+            background: #74ED63;
+            box-shadow: 0 0 15px 2px #74ED63;
+            animation: scanAnim 2s ease-in-out infinite;
+        }
+
+        .scan-text {
+            position: absolute;
+            bottom: 15%; width: 100%; text-align: center;
+            color: #74ED63; font-family: monospace; font-size: 1.2rem;
+            text-shadow: 0 0 8px #74ED63;
+            animation: pulseText 1s infinite alternate;
+        }
+
+        @keyframes scanAnim {
+            0% { top: 10%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 90%; opacity: 0; }
+        }
+
+        @keyframes pulseText {
+            0% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Live Camera Feed Background (Fallback for non-WebXR) -->
+    <video id="camera-feed" autoplay playsinline muted></video>
+
+    <!-- WebXR Three.js Canvas Container -->
+    <div id="three-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none;"></div>
+
+    <!-- AR UI Overlay -->
+    <div id="ui-layer">
+        
+        <!-- Scanner Overlay -->
+        <div id="scanner-overlay">
+            <div class="scanner-brackets">
+                <div class="laser-line"></div>
+            </div>
+            <div class="scan-text">Scanning environment...</div>
+        </div>
+
+        <!-- AR Physical Target (CSS 3D) -->
+        <div id="ar-target" style="display: none; position: absolute; z-index: 4; transform: translate(-50%, -50%); width: 10rem; height: 10rem; transform-style: preserve-3d;">
+            <div id="ring2D-0" class="target-ring ring-outer-red" style="transform: translateZ(0px);"></div>
+            <div id="ring2D-1" class="target-ring ring-white" style="transform: translateZ(15px);"></div>
+            <div id="ring2D-2" class="target-ring ring-red-inner" style="transform: translateZ(30px);"></div>
+        </div>
+
+        <!-- Frisbee Element -->
+        <div id="frisbee" style="display: none; position: absolute; left: 50%; top: 50%; font-size: 120px; text-align: center; line-height: 1; z-index: 5; pointer-events: none; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));">🥏</div>
+
+        <!-- Top Banner -->
+        <div id="top-banner" class="banner-container interactive-element" style="opacity: 0;">
+            <div class="text-outline-wrapper text-5xl md:text-6xl italic tracking-wide">
+                <span class="text-outline-bg banner-text-bg" aria-hidden="true">Hole in the Wall</span>
+                <span class="text-outline-fg">Hole in the Wall</span>
+            </div>
+        </div>
+
+        <!-- Center Button -->
+        <button id="scan-btn" class="scan-button interactive-element" onclick="startScan()">
+            <div class="text-outline-wrapper text-4xl md:text-5xl italic tracking-wider">
+                <span class="text-outline-bg scan-text-bg" aria-hidden="true">Scan to Start</span>
+                <span class="text-outline-fg">Scan to Start</span>
+            </div>
+        </button>
+
+        <!-- Score Popup -->
+        <div id="score-popup" style="display: none; position: absolute; color: #74ED63; font-family: 'Shrikhand', Georgia, serif; font-size: 2rem; font-weight: bold; -webkit-text-stroke: 1px black; z-index: 150; pointer-events: none; transition: transform 0.5s ease-out, opacity 0.5s ease-out; transform: translate(-50%, -50%);">+ 1 Point</div>
+
+        <!-- Continue Overlay -->
+        <div id="continue-overlay" style="display: none; position: absolute; top: 0; left: 0; height: 100%; width: 100%; background-color: rgba(0,0,0,0.8); z-index: 200; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;">
+            <div class="text-white text-4xl mb-6 tracking-wider" style="-webkit-text-stroke: 2px black;">20 Misses!</div>
+            <button onclick="continueGame()" class="scan-button interactive-element">
+                <div class="text-outline-wrapper text-3xl italic tracking-wider">
+                    <span class="text-outline-bg scan-text-bg" aria-hidden="true">Continue?</span>
+                    <span class="text-outline-fg">Continue?</span>
+                </div>
+            </button>
+        </div>
+
+        <!-- Bottom Slider -->
+        <div id="bottom-slider" class="slider-container interactive-element" style="opacity: 0;">
+            <!-- Left Marker -->
+            <div class="slider-end-mark"></div>
+            
+            <!-- Track -->
+            <div class="slider-track-container mx-1">
+                <!-- Filled portion (Purple with black borders) -->
+                <div class="slider-track-left"></div>
+                <!-- Unfilled portion (Solid black) -->
+                <div class="slider-track-right"></div>
+                <!-- Target Line (Green) -->
+                <div class="slider-target-line" id="target-line"></div>
+            </div>
+
+            <!-- Right Marker -->
+            <div class="slider-end-mark"></div>
+        </div>
+
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // Game State Variables
+        let isARActive = false;
+        let isCharging = false;
+        let currentPower = 0;
+        let powerDirection = 1;
+        let chargeSpeed = 2; // Pace at which the power increases
+        let targetPower = 50;
+        const tolerance = 6; // +/- 6% for perfect throw
+
+        let misses = 0;
+        let isGameOver = false;
+
+        let arTargetLeft = 50;
+        let arTargetTop = 20;
+        let currentTargetRotationY = 0;
+        let currentTargetRotationX = 0;
+        let arTargetDepth = 1;
+
+        let orientationInitial = null;
+        let gyroOffsetX = 0;
+        let gyroOffsetY = 0;
+        let ringsLeft2D = 3;
+
+        // WebXR & ThreeJS Variables
+        let useWebXR = false;
+        let xrSession = null, xrRefSpace = null, xrViewerSpace = null;
+        let xrHitTestSource = null;
+        let scene, camera, renderer, targetMesh;
+        let activeTargets = [];
+        let currentWebXRTarget = null;
+        
+        // 3D Frisbee Variables
+        let frisbeeMesh;
+        let xrFrisbeeActive = false;
+        let xrFrisbeeVelocity = new THREE.Vector3();
+        let xrTargetAim = null;
+
+        async function startScan() {
+            const button = document.querySelector('.scan-button');
+            
+            // Brief visual feedback on button press
+            button.style.transform = 'scale(0.9)';
+            setTimeout(() => {
+                button.style.transform = 'scale(1)';
+            }, 100);
+
+            // Fade out button immediately upon clicking
+            button.style.opacity = '0';
+            button.style.pointerEvents = 'none';
+
+            // Check for True WebXR Hit-Test Support
+            if (navigator.xr) {
+                try {
+                    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                    if (supported) {
+                        useWebXR = true;
+                        initThreeJS();
+                        
+                        const session = await navigator.xr.requestSession('immersive-ar', {
+                            requiredFeatures: ['dom-overlay', 'hit-test'],
+                            domOverlay: { root: document.getElementById('ui-layer') }
+                        });
+                        
+                        onSessionStarted(session);
+                        return; // Exit here, WebXR handles the camera
+                    }
+                } catch (error) {
+                    console.warn("WebXR is not supported on this device. Using fallback.");
+                }
+            }
+
+            // Fallback: If WebXR is unsupported (e.g. Desktop/iOS), use the simulated version
+            // Request Gyroscope permission if needed for the simulated camera mode
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permissionState = await DeviceOrientationEvent.requestPermission();
+                    if (permissionState === 'granted') {
+                        window.addEventListener('deviceorientation', handleOrientation);
+                    }
+                } catch (e) { console.warn("Gyro permission denied", e); }
+            } else {
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+
+            runLegacyScanSequence();
+        }
+
+        // --- True WebXR AR Methods ---
+        function initThreeJS() {
+            const container = document.getElementById('three-container');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+            
+            // Enhanced Lighting for "Blender" 3D look
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+            hemiLight.position.set(0, 1, 0);
+            scene.add(hemiLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(1, 2, 1);
+            scene.add(dirLight);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // High-quality "Blender-modeled" 3D Frisbee
+            // Using LatheGeometry for a realistic aerodynamic disc profile with a rim
+            const discPoints = [
+                new THREE.Vector2(0, 0.005),
+                new THREE.Vector2(0.06, 0.005),
+                new THREE.Vector2(0.08, 0.002),
+                new THREE.Vector2(0.09, -0.005),
+                new THREE.Vector2(0.09, -0.015),
+                new THREE.Vector2(0.085, -0.015),
+                new THREE.Vector2(0.08, -0.005),
+                new THREE.Vector2(0.06, 0.00),
+                new THREE.Vector2(0, 0.00)
+            ];
+            const frisbeeGeom = new THREE.LatheGeometry(discPoints, 64);
+            const frisbeeMat = new THREE.MeshPhysicalMaterial({ 
+                color: 0x00BFFF, // Bright blue
+                metalness: 0.1,
+                roughness: 0.2,
+                clearcoat: 1.0,        // Gives it that shiny plastic Blender render look
+                clearcoatRoughness: 0.1,
+                side: THREE.DoubleSide
+            });
+            frisbeeMesh = new THREE.Mesh(frisbeeGeom, frisbeeMat);
+            frisbeeMesh.visible = false;
+            scene.add(frisbeeMesh);
+
+            // True AR Bullseye Target (Floating 3D Rings)
+            targetMesh = new THREE.Group();
+            
+            const colors = [0xff0000, 0xffffff, 0xff0000];
+            
+            // 10x10 consistent scale (~0.254 meters diameter)
+            const radii = [0.127, 0.085, 0.042];
+            const tube = 0.02;
+            
+            for (let i = 0; i < 3; i++) {
+                const geom = new THREE.TorusGeometry(radii[i], tube, 32, 64); // Increased segments for smoother 3D look
+                const mat = new THREE.MeshPhysicalMaterial({ 
+                    color: colors[i],
+                    metalness: 0.1,
+                    roughness: 0.4,
+                    clearcoat: 0.5
+                });
+                const mesh = new THREE.Mesh(geom, mat);
+                
+                mesh.name = "ring_" + i;
+                
+                // Space them slightly on Z axis for 3D depth
+                mesh.position.z = i * 0.02;
+                
+                targetMesh.add(mesh);
+            }
+            
+            targetMesh.visible = false;
+            // Used as a template for continuous spawning
+        }
+
+        function onSessionStarted(session) {
+            xrSession = session;
+            
+            // Hide scanning UI and instantly reveal Game UI
+            document.getElementById('scanner-overlay').style.display = 'none';
+            document.querySelector('.banner-container').style.opacity = '1';
+            document.querySelector('.slider-container').style.opacity = '1';
+            document.querySelector('.banner-container').style.pointerEvents = 'auto';
+            document.querySelector('.slider-container').style.pointerEvents = 'auto';
+            document.getElementById('ar-target').style.display = 'none';
+            isARActive = true;
+
+            renderer.xr.setReferenceSpaceType('local');
+            renderer.xr.setSession(session);
+            
+            // Initialize the Raycast Manager (Hit Test Source)
+            session.requestReferenceSpace('viewer').then((refSpace) => {
+                xrViewerSpace = refSpace;
+                session.requestHitTestSource({ space: xrViewerSpace }).then((source) => {
+                    xrHitTestSource = source;
+                });
+            });
+            
+            session.requestReferenceSpace('local').then((refSpace) => {
+                xrRefSpace = refSpace;
+                renderer.setAnimationLoop(renderXR);
+            });
+        }
+
+        function renderXR(timestamp, frame) {
+            if (!frame) return;
+
+            // Use the raycast manager to scan for real-world surfaces
+            if (activeTargets.length < 1 && xrHitTestSource) {
+                const hitTestResults = frame.getHitTestResults(xrHitTestSource);
+                if (hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    const pose = hit.getPose(xrRefSpace);
+                    if (pose) {
+                        const hitPosition = new THREE.Vector3(
+                            pose.transform.position.x,
+                            pose.transform.position.y,
+                            pose.transform.position.z
+                        );
+                        
+                        // Check if the surface hit is within 3 feet (~0.9144 meters) of the camera
+                        const distance = camera.position.distanceTo(hitPosition);
+                        
+                        if (distance <= 0.9144) {
+                            // Ensure the target spawns between the top and bottom UI elements
+                            const vec = hitPosition.clone();
+                            vec.project(camera);
+                            
+                            // vec.y is between -1 (bottom) and 1 (top). Limit to -0.6 to 0.6 (safe middle zone)
+                            if (vec.y > -0.6 && vec.y < 0.6) {
+                                spawnTargetOnSurface(pose.transform);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Frisbee Physics and 3D Collision Logic
+            if (xrFrisbeeActive) {
+                // Move frisbee along trajectory
+                frisbeeMesh.position.add(xrFrisbeeVelocity);
+                
+                // Spin and wobble frisbee for realism
+                frisbeeMesh.rotation.y += 0.5;
+                frisbeeMesh.rotation.z = Math.sin(Date.now() * 0.01) * 0.1; 
+                
+                // 3D Collider Hit Check
+                if (xrTargetAim) {
+                    const dist = frisbeeMesh.position.distanceTo(xrTargetAim.position);
+                    if (dist < 0.22) { // Radius of 10x10 target + new frisbee model
+                        xrFrisbeeActive = false;
+                        frisbeeMesh.visible = false; // Hide on impact
+                        
+                        const hitTarget = xrTargetAim;
+                        
+                        // Calculate 2D position for score popup
+                        const vec = new THREE.Vector3();
+                        vec.setFromMatrixPosition(hitTarget.matrixWorld);
+                        vec.project(camera);
+                        const px = (vec.x * 0.5 + 0.5) * window.innerWidth;
+                        const py = (-(vec.y * 0.5) + 0.5) * window.innerHeight;
+                        showPlusOnePoint(px, py);
+
+                        const visibleRings = hitTarget.children.filter(c => c.name.startsWith('ring_') && c.visible);
+                        
+                        if (visibleRings.length > 0) {
+                            const ringToRemove = visibleRings[0];
+                            ringToRemove.material.color.setHex(0x74ED63); // Flash green
+                            
+                            setTimeout(() => {
+                                ringToRemove.visible = false;
+                                if (visibleRings.length === 1) {
+                                    // Destroy the whole target if the last ring was just broken
+                                    scene.remove(hitTarget);
+                                    activeTargets = activeTargets.filter(t => t !== hitTarget);
+                                    if (currentWebXRTarget === hitTarget) currentWebXRTarget = null;
+                                }
+                            }, 400);
+                        }
+                    }
+                }
+                
+                // Miss boundary check (reset if it flies too far away)
+                if (camera.position.distanceTo(frisbeeMesh.position) > 5) {
+                    xrFrisbeeActive = false;
+                    frisbeeMesh.visible = false;
+                    handleMiss();
+                }
+                
+            } else if (isCharging && useWebXR) {
+                // Simulate pulling and holding the 3D frisbee in front of the camera
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                const camPos = new THREE.Vector3();
+                camera.getWorldPosition(camPos);
+                
+                const pullBack = (currentPower / 100) * 0.2; // Move closer to camera as power increases
+                const offset = camDir.clone().multiplyScalar(0.4 - pullBack);
+                offset.y -= 0.15; // Hold slightly below eye level
+                
+                frisbeeMesh.position.copy(camPos).add(offset);
+                
+                // Match camera tilt, but keep it mostly flat
+                frisbeeMesh.quaternion.copy(camera.quaternion);
+                frisbeeMesh.rotateX(Math.PI / 2 - 0.2); 
+            }
+
+            // Project targets to find the closest one to screen center for the frisbee
+            if (activeTargets.length > 0) {
+                let closestDist = Infinity;
+                let closestT = null;
+                let bestX = 50, bestY = 50;
+
+                activeTargets.forEach(t => {
+                    // Slow rotation for cool floating effect
+                    t.rotation.x += 0.005;
+                    t.rotation.y += 0.008;
+
+                    const vec = new THREE.Vector3();
+                    vec.setFromMatrixPosition(t.matrixWorld);
+                    vec.project(camera);
+                    
+                    const left = (vec.x * 0.5 + 0.5) * 100;
+                    const top = (-(vec.y * 0.5) + 0.5) * 100;
+                    
+                    const dist = Math.hypot(left - 50, top - 50);
+                    // Only consider if it's somewhat in front of the camera
+                    if (vec.z < 1 && dist < closestDist) {
+                        closestDist = dist;
+                        closestT = t;
+                        bestX = left;
+                        bestY = top;
+                    }
+                });
+
+                if (closestT) {
+                    currentWebXRTarget = closestT;
+                    arTargetLeft = bestX;
+                    arTargetTop = bestY;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function spawnTargetOnSurface(transform) {
+            const clone = targetMesh.clone();
+            
+            // Clone the bullseye material so it can flash independently on hits
+            clone.children.forEach(child => {
+                if (child.name.startsWith("ring_")) {
+                    child.material = child.material.clone();
+                }
+            });
+            
+            clone.visible = true;
+
+            // Place exactly on the scanned real-world surface
+            clone.position.copy(transform.position);
+            clone.quaternion.copy(transform.orientation);
+            
+            // The surface normal for WebXR hit tests is along the Y-axis. 
+            // We rotate by 90 degrees so the rings lay flat against the surface.
+            clone.rotateX(Math.PI / 2);
+            
+            scene.add(clone);
+            activeTargets.push(clone);
+        }
+
+        // --- Simulated Fallback Mechanics ---
+        async function runLegacyScanSequence() {
+            const videoElement = document.getElementById('camera-feed');
+            const scannerOverlay = document.getElementById('scanner-overlay');
+            
+            const runScanUI = () => {
+                scannerOverlay.style.display = 'block';
+                setTimeout(() => {
+                    scannerOverlay.style.display = 'none';
+                    
+                    const banner = document.querySelector('.banner-container');
+                    const slider = document.querySelector('.slider-container');
+                    banner.style.opacity = '1';
+                    banner.style.pointerEvents = 'auto';
+                    slider.style.opacity = '1';
+                    slider.style.pointerEvents = 'auto';
+
+                    const arTarget = document.getElementById('ar-target');
+                    arTarget.style.display = 'block';
+                    randomizeARTarget();
+                    isARActive = true; 
+                }, 2500);
+            };
+
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+                    });
+                    videoElement.srcObject = stream;
+                    videoElement.style.opacity = '1';
+                    runScanUI();
+                } catch (error) {
+                    document.body.style.backgroundColor = "#222";
+                    document.body.style.backgroundImage = "radial-gradient(#444 1px, transparent 1px)";
+                    document.body.style.backgroundSize = "30px 30px";
+                    runScanUI();
+                }
+            } else {
+                document.body.style.backgroundColor = "#222";
+                document.body.style.backgroundImage = "radial-gradient(#444 1px, transparent 1px)";
+                document.body.style.backgroundSize = "30px 30px";
+                runScanUI();
+            }
+        }
+
+        // Gyroscope tracking to keep the simulated 2D hole "world-locked"
+        function handleOrientation(event) {
+            if (!isARActive || useWebXR) return;
+            if (event.beta === null || event.gamma === null) return;
+            
+            if (!orientationInitial) {
+                orientationInitial = { beta: event.beta, gamma: event.gamma };
+                return;
+            }
+            
+            let dGamma = event.gamma - orientationInitial.gamma;
+            let dBeta = event.beta - orientationInitial.beta;
+            
+            // Handle coordinate wrap-arounds when rotating past 180 degrees
+            if (dGamma > 180) dGamma -= 360;
+            if (dGamma < -180) dGamma += 360;
+            if (dBeta > 180) dBeta -= 360;
+            if (dBeta < -180) dBeta += 360;
+            
+            // Move hole opposite to camera tilt (20 pixels per degree of rotation)
+            gyroOffsetX = -dGamma * 20; 
+            gyroOffsetY = -dBeta * 20; 
+            
+            arTargetElement.style.transform = `translate(calc(-50% + ${gyroOffsetX}px), calc(-50% + ${gyroOffsetY}px)) perspective(500px) rotateY(${currentTargetRotationY}deg) rotateX(${currentTargetRotationX}deg) scale(${1/arTargetDepth})`;
+        }
+
+        // --- Frisbee Throwing Mechanics ---
+        const frisbee = document.getElementById('frisbee');
+        const arTargetElement = document.getElementById('ar-target');
+        const trackLeft = document.querySelector('.slider-track-left');
+        const trackRight = document.querySelector('.slider-track-right');
+        const targetLineElement = document.getElementById('target-line');
+        
+        function showPlusOnePoint(x, y) {
+            const popup = document.getElementById('score-popup');
+            popup.style.display = 'block';
+            popup.style.left = `${x}px`;
+            popup.style.top = `${y}px`;
+            popup.style.opacity = '1';
+            popup.style.transform = 'translate(-50%, -50%)'; // Reset position
+            
+            // Force reflow to ensure the transition fires
+            void popup.offsetWidth;
+            
+            // Slide exactly 2 pixels above
+            popup.style.transform = 'translate(-50%, calc(-50% - 2px))';
+            
+            setTimeout(() => {
+                popup.style.opacity = '0';
+            }, 1000);
+            
+            setTimeout(() => {
+                if(popup.style.opacity === '0') popup.style.display = 'none';
+            }, 1500);
+        }
+
+        function handleMiss() {
+            misses++;
+            if (misses >= 20) {
+                isGameOver = true;
+                document.getElementById('continue-overlay').style.display = 'flex';
+            }
+        }
+
+        function continueGame() {
+            misses = 0;
+            isGameOver = false;
+            document.getElementById('continue-overlay').style.display = 'none';
+        }
+
+        function randomizeTarget() {
+            // Random position between 20% and 90%
+            targetPower = 20 + Math.random() * 70;
+            targetLineElement.style.left = `${targetPower}%`;
+        }
+
+        function randomizeARTarget() {
+            // Reset 2D rings before randomizing
+            ringsLeft2D = 3;
+            for(let i = 0; i < 3; i++) {
+                const r = document.getElementById(`ring2D-${i}`);
+                if(r) {
+                    r.style.display = 'block';
+                    r.style.borderColor = i === 1 ? '#ffffff' : '#ff0000';
+                }
+            }
+
+            // Pick a random location within the view
+            arTargetLeft = 20 + Math.random() * 60;
+            arTargetTop = 20 + Math.random() * 50;  
+            
+            // Assign a simulated depth for 2D parallax and scale (1 is closest, 4 is furthest)
+            arTargetDepth = 1 + Math.random() * 3;
+            const scale = 1 / arTargetDepth;
+
+            // Random floating rotation
+            currentTargetRotationY = (Math.random() - 0.5) * 60; 
+            currentTargetRotationX = (Math.random() - 0.5) * 60;
+            
+            arTargetElement.style.left = `${arTargetLeft}vw`;
+            arTargetElement.style.top = `${arTargetTop}vh`;
+            
+            // Reset Gyro Baseline so the new target sits perfectly centered at first
+            orientationInitial = null;
+            gyroOffsetX = 0;
+            gyroOffsetY = 0;
+            
+            arTargetElement.style.transform = `translate(-50%, -50%) perspective(500px) rotateY(${currentTargetRotationY}deg) rotateX(${currentTargetRotationX}deg) scale(${scale})`;
+        }
+
+        function updatePowerMeter(powerPercent) {
+            trackLeft.style.width = `${powerPercent}%`;
+            trackRight.style.width = `${100 - powerPercent}%`;
+        }
+
+        // Call once to set initial target
+        randomizeTarget();
+
+        // Loop to continuously update the power meter while pressing down
+        function chargeLoop() {
+            if (!isCharging) return;
+            
+            currentPower += chargeSpeed * powerDirection;
+            
+            // Ping-pong effect: bounce back when hitting the ends
+            if (currentPower >= 100) {
+                currentPower = 100;
+                powerDirection = -1;
+            } else if (currentPower <= 0) {
+                currentPower = 0;
+                powerDirection = 1;
+            }
+            
+            updatePowerMeter(currentPower);
+            
+            // Visually pull back the 2D frisbee dynamically while it charges (Legacy Mode)
+            if (!useWebXR) {
+                const pullBackDistance = (currentPower / 100) * 120; 
+                frisbee.style.transform = `translateX(-50%) translateY(calc(-50% + ${pullBackDistance}px)) scale(1) rotateX(20deg)`;
+            }
+            
+            // Continue the loop for the next frame
+            requestAnimationFrame(chargeLoop);
+        }
+
+        window.addEventListener('pointerdown', (e) => {
+            if (isGameOver) return; // Prevent throwing if the game is paused
+            
+            // Only start if AR is active and not clicking a UI button/slider
+            if (!isARActive || e.target.closest('.interactive-element')) return;
+            
+            isCharging = true;
+            currentPower = 0;
+            powerDirection = 1; // Always start moving up
+            
+            if (useWebXR) {
+                xrFrisbeeActive = false;
+                frisbeeMesh.visible = true;
+            } else {
+                // Prepare 2D legacy frisbee at rest
+                frisbee.style.display = 'block';
+                frisbee.style.transition = 'none';
+                frisbee.style.transform = `translateX(-50%) translateY(-50%) scale(1) rotateX(0deg) rotateZ(0deg)`;
+            }
+            
+            updatePowerMeter(0);
+            chargeLoop(); // Start the constant-pace power growth
+        });
+
+        window.addEventListener('pointerup', (e) => {
+            if (!isCharging) return;
+            isCharging = false; // This stops the chargeLoop
+            
+            const isHit = Math.abs(currentPower - targetPower) <= tolerance;
+            
+            if (useWebXR) {
+                xrFrisbeeActive = true;
+                xrTargetAim = currentWebXRTarget;
+                
+                const startPos = frisbeeMesh.position.clone();
+                let endPos;
+                
+                if (isHit && xrTargetAim) {
+                    endPos = xrTargetAim.position.clone();
+                } else {
+                    // Miss trajectory - aim over the target and deep into the distance
+                    const camDir = new THREE.Vector3();
+                    camera.getWorldDirection(camDir);
+                    camDir.y += 0.3; 
+                    endPos = camera.position.clone().add(camDir.multiplyScalar(5));
+                }
+                
+                // Calculate physical velocity vector and shoot it out
+                xrFrisbeeVelocity.subVectors(endPos, startPos).normalize().multiplyScalar(0.06); 
+                
+                randomizeTarget(); // Set UI up for next throw
+                updatePowerMeter(0);
+                currentPower = 0;
+                
+            } else {
+                // Throw it! Apply smooth curve animation for deep perspective flight (Legacy 2D)
+                frisbee.style.transition = 'transform 1.5s cubic-bezier(0.1, 0.8, 0.2, 1)';
+                
+                let transformX, transformY, finalScale;
+                
+                // Check if hit the target meter
+                if (isHit) {
+                    // Perfect hit: fly straight into the hole
+                    transformX = `calc(-50% + ${arTargetLeft - 50}vw + ${gyroOffsetX}px)`;
+                    transformY = `calc(-50% + ${arTargetTop - 50}vh + ${gyroOffsetY}px)`;
+                    finalScale = 0.15 / arTargetDepth; // Scale down significantly based on target depth
+                } else {
+                    // Miss: travel straight down the middle towards the mid horizon line vanishing point
+                    // Adjusted flight path 10 degrees North
+                    transformX = `calc(-50% + 0vw)`; 
+                    transformY = `calc(-50% - 10vh)`; 
+                    finalScale = 0.01; 
+                }
+                
+                const spinAmount = (Math.random() > 0.5 ? 1 : -1) * (1440 + Math.random() * 1080); // Random continuous spin
+                
+                // Move far up into the screen (deep perspective), scale down, and spin flat
+                frisbee.style.transform = `translateX(${transformX}) translateY(${transformY}) scale(${finalScale}) rotateX(75deg) rotateZ(${spinAmount}deg)`;
+                
+                // Immediately pick a new target for the meter for the next throw
+                randomizeTarget();
+                
+                // Reset and handle hit logic after animation finishes
+                setTimeout(() => {
+                    frisbee.style.display = 'none';
+                    updatePowerMeter(0);
+                    currentPower = 0;
+
+                    if (isHit) {
+                        showPlusOnePoint((arTargetLeft / 100) * window.innerWidth, (arTargetTop / 100) * window.innerHeight);
+
+                        // Target the outermost available ring in 2D fallback
+                        const currentRingIndex = 3 - ringsLeft2D;
+                        const currentRing = document.getElementById(`ring2D-${currentRingIndex}`);
+                        
+                        if (currentRing) {
+                            currentRing.style.borderColor = '#74ED63'; // Flash green
+                            setTimeout(() => {
+                                currentRing.style.display = 'none'; // Break it
+                                ringsLeft2D--;
+                                
+                                if (ringsLeft2D <= 0) {
+                                    randomizeARTarget(); // Respawn if completely broken
+                                }
+                            }, 400); 
+                        }
+                    } else {
+                        handleMiss();
+                        randomizeARTarget(); // Move it normally for 2D fallback
+                    }
+                }, 1500);
+            }
+        });
+    </script>
+</body>
+</html>
