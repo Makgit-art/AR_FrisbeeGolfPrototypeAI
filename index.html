@@ -431,6 +431,7 @@
         function initThreeJS() {
             const container = document.getElementById('three-container');
             scene = new THREE.Scene();
+            scene.background = null; // Ensure transparent background for camera feed
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
             
             // Enhanced Lighting for "Blender" 3D look
