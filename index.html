@@ -792,8 +792,9 @@
             if (!acc) return;
             
             // Add a slight translation based on instant acceleration to simulate physical bump/movement
-            motionOffsetX = (acc.x || 0) * -3;
-            motionOffsetY = (acc.y || 0) * 3;
+            // Inverted to move in the opposing direction of the device motion
+            motionOffsetX = (acc.x || 0) * 3;
+            motionOffsetY = (acc.y || 0) * -3;
             
             updateTargetTransform();
         }
