@@ -386,7 +386,12 @@
 
             // Build High-Detail Blender-Style 3D Frisbee
             buildFrisbeeMesh();
-// ... existing code ... -->
+
+            window.addEventListener('resize', onWindowResize);
+            lastTime = performance.now();
+            requestAnimationFrame(animate);
+        }
+
         function buildTargetTemplate() {
             targetTemplateMesh = new THREE.Group();
 
@@ -816,9 +821,6 @@
                 frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
                 frisbeeMesh.rotation.y += 18 * dt; // Aerodynamic spin
 
-                // Check 3D collider intersection against active targets
-                let collidedTarget = null;
-                const frisbeeRadius = 0.078;
                 // Check 3D collider intersection against active 8.5" x 11" GLB portal targets
                 let collidedTarget = null;
                 const frisbeeRadius = 0.078;
