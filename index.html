@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Shrikhand&display=swap');
 
@@ -212,8 +211,8 @@
 
         <!-- Simulated Image Scanner UI -->
         <div id="scanner-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 120; flex-direction: column; justify-content: center; align-items: center; pointer-events: none;">
-            <div style="border: 4px dashed #74ED63; width: 212px; height: 275px; border-radius: 16px; position: relative; box-shadow: 0 0 20px rgba(116, 237, 99, 0.3); animation: pulse 2s infinite;">
-                <div style="position: absolute; top: -40px; left: 0; width: 100%; text-align: center; color: #74ED63; font-weight: bold; font-family: sans-serif; font-size: 1.2rem; text-shadow: 2px 2px 4px black; -webkit-text-stroke: 1px black;">SCANNING 8.5" x 11"...</div>
+            <div style="border: 4px dashed #74ED63; width: 220px; height: 220px; border-radius: 16px; position: relative; box-shadow: 0 0 20px rgba(116, 237, 99, 0.3); animation: pulse 2s infinite;">
+                <div style="position: absolute; top: -40px; left: 0; width: 100%; text-align: center; color: #74ED63; font-weight: bold; font-family: sans-serif; font-size: 1.2rem; text-shadow: 2px 2px 4px black; -webkit-text-stroke: 1px black;">SCANNING RETICLE...</div>
                 <div style="position: absolute; bottom: -40px; left: 0; width: 100%; text-align: center; color: white; font-family: sans-serif; font-size: 0.9rem; text-shadow: 1px 1px 2px black;">Align scannable image in frame</div>
             </div>
             
@@ -222,14 +221,6 @@
                 <span style="color: white; font-family: sans-serif; font-size: 0.8rem; text-shadow: 1px 1px 2px black; margin-bottom: 5px;">Target Marker</span>
                 <img src="Scannable_Reticle.png" alt="Reticle Reference" style="width: 80px; height: 80px; border: 2px solid white; border-radius: 10px; background: rgba(0,0,0,0.5); object-fit: contain;">
             </div>
-        </div>
-
-        <!-- GLB File Loader Control -->
-        <div class="interactive-element" style="position: absolute; top: 14px; right: 14px; z-index: 160;">
-            <label for="glb-file-input" style="display: inline-block; background: rgba(0,0,0,0.75); color: #74ED63; border: 2px solid #74ED63; border-radius: 12px; padding: 6px 12px; font-family: sans-serif; font-size: 0.8rem; font-weight: bold; cursor: pointer;">
-                Load .GLB
-            </label>
-            <input id="glb-file-input" type="file" accept=".glb,.gltf" style="display: none;" onchange="handleGlbUpload(event)">
         </div>
 
         <style>
@@ -273,12 +264,9 @@
         let currentTarget = null;
         let environmentGroup;
 
-        // Stencil Portal & GLB Model Variables (8.5" x 11" converted to meters)
-        const PORTAL_WIDTH_M = 8.5 * 0.0254;   // 0.2159 meters
-        const PORTAL_HEIGHT_M = 11.0 * 0.0254; // 0.2794 meters
-        const STENCIL_REF = 1;
-        let gltfLoader = null;
-        let loadedGlbModel = null;
+        // 3D Park Diorama Dimensions (matches 8.5" x 11" rectangular grass footprint in meters)
+        const DIORAMA_WIDTH_M = 0.2159;  // 8.5 inches
+        const DIORAMA_DEPTH_M = 0.2794;  // 11.0 inches
 
         // 3D Frisbee Variables
         let frisbeeMesh;
@@ -351,8 +339,8 @@
             camera.position.set(0, 1.4, 0); // Eye level
             camera.rotation.order = 'YXZ';
 
-            // Enable stencil buffer for 8.5" x 11" portal masking
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
+            // Transparent renderer so the live camera feed shows through cleanly (no stencil shader)
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setClearColor(0x000000, 0);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -360,18 +348,21 @@
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
 
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
-            scene.add(ambientLight);
+            // Lighting tuned to match the reference shots (bright warm top light + deep foliage undersides)
+            const hemiLight = new THREE.HemisphereLight(0xfff5ec, 0x261712, 0.75);
+            scene.add(hemiLight);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-            dirLight.position.set(2, 5, 3);
+            const dirLight = new THREE.DirectionalLight(0xfffaf0, 1.35);
+            dirLight.position.set(1.8, 4.5, 2.2);
             dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.bias = -0.0005;
             scene.add(dirLight);
 
-            const rimLight = new THREE.PointLight(0x8B5CF6, 1.2, 10);
-            rimLight.position.set(-2, 2.5, -1);
-            scene.add(rimLight);
+            const fillLight = new THREE.DirectionalLight(0xd8e2ff, 0.35);
+            fillLight.position.set(-2.0, 1.5, -2.0);
+            scene.add(fillLight);
 
             environmentGroup = new THREE.Group();
             scene.add(environmentGroup);
@@ -379,10 +370,8 @@
             // Initialize Device Orientation Tracking for AR feel
             controls = new THREE.DeviceOrientationControls(camera);
 
-            // Initialize GLTF/GLB Loader and build 8.5" x 11" Stencil Portal Template
-            gltfLoader = new THREE.GLTFLoader();
+            // Build the 3D Park Environment directly from the reference shots
             buildTargetTemplate();
-            tryLoadDefaultGlb();
 
             // Build High-Detail Blender-Style 3D Frisbee
             buildFrisbeeMesh();
@@ -392,187 +381,452 @@
             requestAnimationFrame(animate);
         }
 
-        function buildTargetTemplate() {
-            targetTemplateMesh = new THREE.Group();
+        function createGrassTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
 
-            // 1. Custom Stencil Shader Material for the 8.5" x 11" mask area on the scannable image
-            const stencilMaskMaterial = new THREE.ShaderMaterial({
-                vertexShader: `
-                    void main() {
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `,
-                fragmentShader: `
-                    void main() {
-                        gl_FragColor = vec4(1.0);
-                    }
-                `,
-                colorWrite: false,
-                depthWrite: false,
-                side: THREE.DoubleSide,
-                stencilWrite: true,
-                stencilRef: STENCIL_REF,
-                stencilFunc: THREE.AlwaysStencilFunc,
-                stencilFail: THREE.KeepStencilOp,
-                stencilZFail: THREE.KeepStencilOp,
-                stencilZPass: THREE.ReplaceStencilOp
-            });
+            // Base lush meadow green
+            ctx.fillStyle = '#5c9436';
+            ctx.fillRect(0, 0, 256, 256);
 
-            // 8.5" x 11" Stencil Mask Plane
-            const maskGeo = new THREE.PlaneGeometry(PORTAL_WIDTH_M, PORTAL_HEIGHT_M);
-            const maskMesh = new THREE.Mesh(maskGeo, stencilMaskMaterial);
-            maskMesh.name = 'stencil-mask';
-            maskMesh.renderOrder = 1;
-            targetTemplateMesh.add(maskMesh);
+            // Mottled light yellow-green and deep forest green blades/tufts
+            const palette = ['#7eb84c', '#98cc64', '#427326', '#2e5718', '#b0db7d', '#548731'];
+            for (let i = 0; i < 4200; i++) {
+                ctx.fillStyle = palette[Math.floor(Math.random() * palette.length)];
+                const x = Math.random() * 256;
+                const y = Math.random() * 256;
+                const w = 1.5 + Math.random() * 3.5;
+                const h = 1.5 + Math.random() * 4.5;
+                ctx.fillRect(x, y, w, h);
+            }
 
-            // 2. Crisp 8.5" x 11" Portal Frame Outline (shows masked boundary on scannable image)
-            const frameGeo = new THREE.EdgesGeometry(maskGeo);
-            const frameMat = new THREE.LineBasicMaterial({ color: 0x74ED63 });
-            const frameOutline = new THREE.LineSegments(frameGeo, frameMat);
-            frameOutline.name = 'portal-frame';
-            frameOutline.renderOrder = 3;
-            targetTemplateMesh.add(frameOutline);
-
-            // 3. Container for the masked GLB scene recessed behind the 8.5" x 11" window
-            const glbContainer = new THREE.Group();
-            glbContainer.name = 'glb-container';
-            glbContainer.position.set(0, -PORTAL_HEIGHT_M * 0.25, -0.14);
-
-            const contentModel = loadedGlbModel ? loadedGlbModel.clone() : buildGlbFallbackScene();
-            applyStencilMaskToModel(contentModel);
-            glbContainer.add(contentModel);
-            targetTemplateMesh.add(glbContainer);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(2, 2.6);
+            return tex;
         }
 
-        function applyStencilMaskToModel(rootObj) {
-            rootObj.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    const materials = Array.isArray(child.material) ? child.material : [child.material];
-                    const clonedMats = materials.map((mat) => {
-                        const m = mat.clone();
-                        m.stencilWrite = true;
-                        m.stencilRef = STENCIL_REF;
-                        m.stencilFunc = THREE.EqualStencilFunc;
-                        m.stencilFail = THREE.KeepStencilOp;
-                        m.stencilZFail = THREE.KeepStencilOp;
-                        m.stencilZPass = THREE.KeepStencilOp;
-                        return m;
-                    });
-                    child.material = Array.isArray(child.material) ? clonedMats : clonedMats[0];
-                    child.renderOrder = 2;
-                }
-            });
-        }
+        function createBranchTube(pointsArr, radiusBottom, radiusTop, material) {
+            const curve = new THREE.CatmullRomCurve3(pointsArr);
+            const tubularSegments = 16;
+            const radialSegments = 10;
+            const geo = new THREE.TubeGeometry(curve, tubularSegments, 1, radialSegments, false);
 
-        function normalizeGlbToPortal(model) {
-            // Auto-scale and center the imported GLB so it fits cleanly inside the 8.5" x 11" stencil window
-            const box = new THREE.Box3().setFromObject(model);
-            const size = new THREE.Vector3();
+            // Taper radius smoothly from base to tip
+            const pos = geo.attributes.position;
+            const v = new THREE.Vector3();
             const center = new THREE.Vector3();
-            box.getSize(size);
-            box.getCenter(center);
 
-            const maxDim = Math.max(size.x, size.y, size.z) || 1;
-            const targetSize = Math.min(PORTAL_WIDTH_M, PORTAL_HEIGHT_M) * 0.85;
-            const scaleFactor = targetSize / maxDim;
+            for (let i = 0; i <= tubularSegments; i++) {
+                const t = i / tubularSegments;
+                curve.getPointAt(t, center);
+                // Slight root flare at the very bottom
+                const flare = t < 0.12 ? (1 + (0.12 - t) * 2.2) : 1.0;
+                const r = THREE.MathUtils.lerp(radiusBottom, radiusTop, t) * flare;
 
-            const wrapper = new THREE.Group();
-            model.position.sub(center);
-            model.scale.multiplyScalar(scaleFactor);
-            wrapper.add(model);
-            return wrapper;
+                for (let j = 0; j <= radialSegments; j++) {
+                    const idx = i * (radialSegments + 1) + j;
+                    v.fromBufferAttribute(pos, idx);
+                    v.sub(center).multiplyScalar(r).add(center);
+                    pos.setXYZ(idx, v.x, v.y, v.z);
+                }
+            }
+            geo.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
         }
 
-        function buildGlbFallbackScene() {
-            // Procedural fallback matching the GLB JSON nodes: lampPost, Garbage, Leaf-Card, grass, pathway
-            const diorama = new THREE.Group();
-            diorama.name = 'glb-fallback-diorama';
+        function addLeafCluster(parentGroup, clusters) {
+            // Create a pointed leaf-card diamond geometry matching the Blender reference foliage
+            const leafShape = new THREE.Shape();
+            leafShape.moveTo(0, 0.0085);
+            leafShape.quadraticCurveTo(0.0048, 0.002, 0, -0.0065);
+            leafShape.quadraticCurveTo(-0.0048, 0.002, 0, 0.0085);
 
-            // Grass base
-            const grassMat = new THREE.MeshStandardMaterial({ color: 0x2d6a36, roughness: 0.9, side: THREE.DoubleSide });
-            const grass = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.32), grassMat);
-            grass.rotation.x = -Math.PI / 2;
-            diorama.add(grass);
+            const leafGeo = new THREE.ShapeGeometry(leafShape, 3);
+            const leafMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.72,
+                metalness: 0.04,
+                side: THREE.DoubleSide
+            });
 
-            // Pathway (from GLB pathway.Materia;)
-            const pathMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.128, 0.103, 0.112), roughness: 0.81, metalness: 0 });
-            const pathway = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.008, 0.30), pathMat);
-            pathway.position.set(0, 0.004, 0);
-            diorama.add(pathway);
+            // Count total instanced leaves across all canopy clouds
+            let totalLeaves = 0;
+            clusters.forEach(c => { totalLeaves += c.count; });
 
-            // Lamp Post (from GLB lamp material)
-            const lampMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.03, 0.005, 0.005), roughness: 0.27, metalness: 0.09 });
-            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.009, 0.16, 12), lampMat);
-            pole.position.set(0.055, 0.08, -0.02);
-            diorama.add(pole);
+            const instancedLeaves = new THREE.InstancedMesh(leafGeo, leafMat, totalLeaves);
+            instancedLeaves.castShadow = true;
+            instancedLeaves.receiveShadow = true;
 
-            const lampHead = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffd166, emissiveIntensity: 0.8 }));
-            lampHead.position.set(0.055, 0.165, -0.02);
-            diorama.add(lampHead);
+            const dummy = new THREE.Object3D();
+            const color = new THREE.Color();
+            const leafPalette = [
+                0xe6cec4, // warm light cream-blush (top highlights)
+                0xd9b5a6, // dusty rose-beige
+                0xc79d8d, // muted terracotta pink
+                0xb08474, // deeper warm taupe
+                0x6e4a3e  // dark shaded interior leaf
+            ];
 
-            // Garbage Bin (from GLB garbage+Material)
-            const garbageMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.008, 0.04, 0.014), roughness: 0.57, metalness: 0.41 });
-            const garbage = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.015, 0.042, 16), garbageMat);
-            garbage.position.set(0.032, 0.021, -0.015);
-            diorama.add(garbage);
+            let index = 0;
+            clusters.forEach((c) => {
+                for (let i = 0; i < c.count; i++) {
+                    // Distribute leaves densely on and inside an organic ellipsoid cloud
+                    const u = Math.random();
+                    const v = Math.random();
+                    const theta = u * 2.0 * Math.PI;
+                    const phi = Math.acos(2.0 * v - 1.0);
+                    const radScale = Math.pow(Math.random(), 0.35);
 
-            // Leaf Card accent
-            const leafMat = new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.7, side: THREE.DoubleSide });
-            const leaf = new THREE.Mesh(new THREE.PlaneGeometry(0.035, 0.025), leafMat);
-            leaf.position.set(-0.04, 0.02, -0.05);
-            leaf.rotation.set(-0.4, 0.4, 0.2);
-            diorama.add(leaf);
+                    const rx = c.rx * radScale * Math.sin(phi) * Math.cos(theta);
+                    const ry = c.ry * radScale * Math.cos(phi);
+                    const rz = c.rz * radScale * Math.sin(phi) * Math.sin(theta);
 
-            return diorama;
-        }
+                    dummy.position.set(c.x + rx, c.y + ry, c.z + rz);
+                    dummy.rotation.set(
+                        Math.random() * Math.PI * 2,
+                        Math.random() * Math.PI * 2,
+                        Math.random() * Math.PI * 2
+                    );
+                    const s = (0.75 + Math.random() * 0.75) * (c.leafScale || 1.0);
+                    dummy.scale.set(s, s, s);
+                    dummy.updateMatrix();
+                    instancedLeaves.setMatrixAt(index, dummy.matrix);
 
-        function swapGlbIntoActiveTargets(glbScene) {
-            loadedGlbModel = normalizeGlbToPortal(glbScene);
-            buildTargetTemplate();
-
-            // Hot-swap into any currently spawned portal target
-            activeTargets.forEach((target) => {
-                const container = target.getObjectByName('glb-container');
-                if (container) {
-                    while (container.children.length > 0) {
-                        container.remove(container.children[0]);
+                    // Top leaves brighter blush-cream, underside leaves darker brown-rose like reference renders
+                    const heightBias = (ry / (c.ry || 1) + 1) * 0.5; // 0 bottom -> 1 top
+                    let colorHex = leafPalette[Math.floor(Math.random() * 3)];
+                    if (heightBias < 0.38) {
+                        colorHex = Math.random() < 0.65 ? 0x523127 : 0x7d5346;
+                    } else if (heightBias > 0.72) {
+                        colorHex = Math.random() < 0.6 ? 0xefd9cf : 0xdeb9aa;
                     }
-                    const nextModel = loadedGlbModel.clone();
-                    applyStencilMaskToModel(nextModel);
-                    container.add(nextModel);
+                    color.setHex(colorHex);
+                    instancedLeaves.setColorAt(index, color);
+                    index++;
                 }
             });
+
+            instancedLeaves.instanceMatrix.needsUpdate = true;
+            if (instancedLeaves.instanceColor) {
+                instancedLeaves.instanceColor.needsUpdate = true;
+            }
+            parentGroup.add(instancedLeaves);
         }
 
-        function tryLoadDefaultGlb() {
-            if (!gltfLoader) return;
-            gltfLoader.load(
-                'target.glb',
-                (gltf) => swapGlbIntoActiveTargets(gltf.scene),
-                undefined,
-                () => {
-                    // Silently keep fallback diorama until user uploads their .glb via "Load .GLB"
-                }
+        function buildTargetTemplate() {
+            // Root group for the entire 3D Park Environment sitting on top of the scannable reticle
+            targetTemplateMesh = new THREE.Group();
+            targetTemplateMesh.name = 'park-diorama-root';
+
+            const W = DIORAMA_WIDTH_M;  // X width: 0.2159m (-0.108 to +0.108)
+            const D = DIORAMA_DEPTH_M;  // Z depth: 0.2794m (-0.140 back to +0.140 front)
+            const baseThickness = 0.008;
+
+            // 1. Grass Base Platform (rectangular 8.5" x 11" proportion)
+            const grassTex = createGrassTexture();
+            const grassTopMat = new THREE.MeshStandardMaterial({
+                map: grassTex,
+                roughness: 0.92,
+                metalness: 0.0
+            });
+            const grassEdgeMat = new THREE.MeshStandardMaterial({ color: 0x3b6622, roughness: 0.95 });
+            const grassBase = new THREE.Mesh(
+                new THREE.BoxGeometry(W, baseThickness, D),
+                [grassEdgeMat, grassEdgeMat, grassTopMat, grassEdgeMat, grassEdgeMat, grassEdgeMat]
             );
-        }
+            grassBase.position.set(0, baseThickness * 0.5, 0);
+            grassBase.receiveShadow = true;
+            grassBase.castShadow = true;
+            targetTemplateMesh.add(grassBase);
 
-        function handleGlbUpload(event) {
-            const file = event.target.files && event.target.files[0];
-            if (!file) return;
+            // Subtle pale trim strip along the back edge (visible in topview & backview)
+            const backTrim = new THREE.Mesh(
+                new THREE.BoxGeometry(W, baseThickness * 0.85, 0.005),
+                new THREE.MeshStandardMaterial({ color: 0xd8dfd0, roughness: 0.85 })
+            );
+            backTrim.position.set(0, baseThickness * 0.52, -D * 0.5 + 0.0025);
+            backTrim.receiveShadow = true;
+            targetTemplateMesh.add(backTrim);
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                if (!gltfLoader) {
-                    gltfLoader = new THREE.GLTFLoader();
-                }
-                gltfLoader.parse(
-                    e.target.result,
-                    '',
-                    (gltf) => swapGlbIntoActiveTargets(gltf.scene),
-                    (err) => console.error('Failed to parse GLB file:', err)
-                );
-            };
-            reader.readAsArrayBuffer(file);
+            // 2. Curved Off-White Pathway (sweeps from mid-left -> front-center -> mid-right)
+            const pathCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-W * 0.49, 0, 0.010),
+                new THREE.Vector3(-W * 0.36, 0, 0.056),
+                new THREE.Vector3(-W * 0.08, 0, 0.082),
+                new THREE.Vector3(W * 0.22, 0, 0.072),
+                new THREE.Vector3(W * 0.37, 0, 0.030),
+                new THREE.Vector3(W * 0.495, 0, -0.008)
+            ]);
+            const pathPoints = pathCurve.getPoints(36);
+            const halfPathW = 0.0175;
+            const pathShapePtsLeft = [];
+            const pathShapePtsRight = [];
+
+            for (let i = 0; i < pathPoints.length; i++) {
+                const p = pathPoints[i];
+                const tangent = pathCurve.getTangent(i / (pathPoints.length - 1)).normalize();
+                const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
+                pathShapePtsLeft.push(new THREE.Vector2(p.x + normal.x * halfPathW, -(p.z + normal.z * halfPathW)));
+                pathShapePtsRight.push(new THREE.Vector2(p.x - normal.x * halfPathW, -(p.z - normal.z * halfPathW)));
+            }
+            const pathShape = new THREE.Shape(pathShapePtsLeft.concat(pathShapePtsRight.reverse()));
+            const pathGeo = new THREE.ExtrudeGeometry(pathShape, { depth: 0.0035, bevelEnabled: false });
+            pathGeo.rotateX(-Math.PI / 2);
+            const pathMat = new THREE.MeshStandardMaterial({
+                color: 0xebe8e0,
+                roughness: 0.82,
+                metalness: 0.02
+            });
+            const pathwayMesh = new THREE.Mesh(pathGeo, pathMat);
+            pathwayMesh.position.y = baseThickness;
+            pathwayMesh.receiveShadow = true;
+            targetTemplateMesh.add(pathwayMesh);
+
+            // 3. Front-Left Purple Block with Pastel Pink Top (retaining wall / bench accent)
+            const blockW = W * 0.56;
+            const blockH = 0.044;
+            const blockD = 0.024;
+            const purpleSideMat = new THREE.MeshStandardMaterial({ color: 0x6b1d57, roughness: 0.55 });
+            const pinkTopMat = new THREE.MeshStandardMaterial({ color: 0xfad2e9, roughness: 0.45 });
+            const accentBlock = new THREE.Mesh(
+                new THREE.BoxGeometry(blockW, blockH, blockD),
+                [purpleSideMat, purpleSideMat, pinkTopMat, purpleSideMat, purpleSideMat, purpleSideMat]
+            );
+            // Positioned flush along the front-left edge, extending slightly left and down as in the references
+            accentBlock.position.set(-W * 0.34, -blockH * 0.30 + baseThickness, D * 0.5 + blockD * 0.42);
+            accentBlock.castShadow = true;
+            accentBlock.receiveShadow = true;
+            targetTemplateMesh.add(accentBlock);
+
+            // 4. Dark Reddish-Brown Modern Lamp Post (front-right bend of the pathway)
+            const lampGroup = new THREE.Group();
+            const lampMat = new THREE.MeshStandardMaterial({
+                color: 0x3b0c08,
+                roughness: 0.32,
+                metalness: 0.18
+            });
+            const postH = 0.165;
+            const lampPole = new THREE.Mesh(new THREE.BoxGeometry(0.011, postH, 0.011), lampMat);
+            lampPole.position.y = postH * 0.5;
+            lampPole.castShadow = true;
+            lampGroup.add(lampPole);
+
+            // Overhanging rectangular luminaire head + small top nub
+            const lampHead = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.015, 0.020), lampMat);
+            lampHead.position.set(-0.008, postH - 0.004, 0);
+            lampHead.castShadow = true;
+            lampGroup.add(lampHead);
+
+            const lampNub = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.006, 0.007), lampMat);
+            lampNub.position.set(-0.008, postH + 0.006, 0);
+            lampGroup.add(lampNub);
+
+            // Subtle warm glowing lens underneath head
+            const lampLens = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.018, 0.012),
+                new THREE.MeshBasicMaterial({ color: 0xffe9b5, side: THREE.DoubleSide })
+            );
+            lampLens.rotation.x = Math.PI / 2;
+            lampLens.position.set(-0.012, postH - 0.012, 0);
+            lampGroup.add(lampLens);
+
+            lampGroup.position.set(0.044, baseThickness, 0.070);
+            lampGroup.rotation.y = 0.52;
+            targetTemplateMesh.add(lampGroup);
+
+            // 5. Green Cylindrical Garbage Can (next to lamp post, inside curve of path)
+            const trashGroup = new THREE.Group();
+            const trashMat = new THREE.MeshStandardMaterial({
+                color: 0x2f5222,
+                roughness: 0.52,
+                metalness: 0.35
+            });
+            const trashBody = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.010, 0.028, 18), trashMat);
+            trashBody.position.y = 0.014;
+            trashBody.castShadow = true;
+            trashBody.receiveShadow = true;
+            trashGroup.add(trashBody);
+
+            // Top rim and middle reinforcement band
+            const trashRim = new THREE.Mesh(new THREE.TorusGeometry(0.0108, 0.0014, 8, 18), trashMat);
+            trashRim.rotation.x = Math.PI / 2;
+            trashRim.position.y = 0.0275;
+            trashGroup.add(trashRim);
+
+            const trashBand = new THREE.Mesh(new THREE.TorusGeometry(0.0106, 0.0011, 8, 18), trashMat);
+            trashBand.rotation.x = Math.PI / 2;
+            trashBand.position.y = 0.014;
+            trashGroup.add(trashBand);
+
+            const trashHole = new THREE.Mesh(
+                new THREE.CircleGeometry(0.0095, 16),
+                new THREE.MeshStandardMaterial({ color: 0x0d140a, roughness: 0.9 })
+            );
+            trashHole.rotation.x = -Math.PI / 2;
+            trashHole.position.y = 0.0281;
+            trashGroup.add(trashHole);
+
+            trashGroup.position.set(0.024, baseThickness, 0.052);
+            targetTemplateMesh.add(trashGroup);
+
+            // 6. Purple Disc Golf Basket (interactive target center nestled near the trees)
+            const basketGroup = new THREE.Group();
+            basketGroup.name = 'disc-golf-basket';
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.4, metalness: 0.7 });
+            const purpleBandMat = new THREE.MeshStandardMaterial({ color: 0x6b5ce7, roughness: 0.35, metalness: 0.25 });
+            const chainMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.3, metalness: 0.85 });
+
+            // Center pole & base
+            const basketPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0018, 0.044, 10), metalMat);
+            basketPole.position.y = 0.022;
+            basketPole.castShadow = true;
+            basketGroup.add(basketPole);
+
+            const basketFoot = new THREE.Mesh(new THREE.TorusGeometry(0.008, 0.0012, 6, 14), metalMat);
+            basketFoot.rotation.x = Math.PI / 2;
+            basketFoot.position.y = 0.0015;
+            basketGroup.add(basketFoot);
+
+            // Lower catching tray
+            const catchTray = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.0095, 0.0045, 16, 1, true), metalMat);
+            catchTray.position.y = 0.019;
+            basketGroup.add(catchTray);
+
+            const catchRing = new THREE.Mesh(new THREE.TorusGeometry(0.013, 0.0012, 6, 16), metalMat);
+            catchRing.rotation.x = Math.PI / 2;
+            catchRing.position.y = 0.021;
+            basketGroup.add(catchRing);
+
+            // Top purple band/cap
+            const topBand = new THREE.Mesh(new THREE.CylinderGeometry(0.0125, 0.0125, 0.0045, 18), purpleBandMat);
+            topBand.position.y = 0.042;
+            topBand.castShadow = true;
+            basketGroup.add(topBand);
+
+            // Hanging chains ring
+            const numChains = 10;
+            for (let i = 0; i < numChains; i++) {
+                const angle = (i / numChains) * Math.PI * 2;
+                const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.00045, 0.00045, 0.020, 5), chainMat);
+                chain.position.set(Math.cos(angle) * 0.0075, 0.030, Math.sin(angle) * 0.0075);
+                chain.rotation.z = Math.cos(angle) * 0.14;
+                chain.rotation.x = -Math.sin(angle) * 0.14;
+                basketGroup.add(chain);
+            }
+
+            basketGroup.position.set(-0.028, baseThickness, 0.002);
+            targetTemplateMesh.add(basketGroup);
+
+            // 7. Three Stylized Olive-Green Trees with Fluffy Dusty-Pink Leaf-Card Canopies
+            const trunkMat = new THREE.MeshStandardMaterial({
+                color: 0x3e521d,
+                roughness: 0.86,
+                metalness: 0.02
+            });
+            const treesGroup = new THREE.Group();
+            treesGroup.position.y = baseThickness;
+
+            // --- Tree 1: Tallest Hero Tree (Back-Left) ---
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.056, 0.0, -0.068),
+                new THREE.Vector3(-0.058, 0.12, -0.070),
+                new THREE.Vector3(-0.052, 0.24, -0.064),
+                new THREE.Vector3(-0.045, 0.34, -0.056)
+            ], 0.0145, 0.006, trunkMat));
+
+            // Tree 1 upper-left Y-fork limb
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.053, 0.22, -0.065),
+                new THREE.Vector3(-0.020, 0.27, -0.072),
+                new THREE.Vector3(-0.005, 0.325, -0.068)
+            ], 0.009, 0.0045, trunkMat));
+
+            // Tree 1 mid-height reaching arm toward front-left
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.057, 0.115, -0.069),
+                new THREE.Vector3(-0.052, 0.142, -0.022),
+                new THREE.Vector3(-0.050, 0.175, 0.015)
+            ], 0.0095, 0.0045, trunkMat));
+
+            // --- Tree 2: Medium Tree (Center-Back) ---
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.004, 0.0, -0.052),
+                new THREE.Vector3(0.002, 0.095, -0.048),
+                new THREE.Vector3(0.006, 0.195, -0.050)
+            ], 0.0125, 0.0055, trunkMat));
+
+            // Tree 2 right spreading branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.003, 0.11, -0.049),
+                new THREE.Vector3(0.036, 0.145, -0.045),
+                new THREE.Vector3(0.055, 0.18, -0.038)
+            ], 0.0075, 0.0035, trunkMat));
+
+            // Tree 2 front-left branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.003, 0.115, -0.048),
+                new THREE.Vector3(-0.018, 0.145, -0.018),
+                new THREE.Vector3(-0.030, 0.165, 0.004)
+            ], 0.0068, 0.0032, trunkMat));
+
+            // Tree 2 lower-right twig
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.003, 0.075, -0.050),
+                new THREE.Vector3(0.032, 0.098, -0.065),
+                new THREE.Vector3(0.048, 0.125, -0.072)
+            ], 0.0055, 0.0022, trunkMat));
+
+            // --- Tree 3: Slender Sapling (Back-Right) ---
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.068, 0.0, -0.064),
+                new THREE.Vector3(0.067, 0.085, -0.065),
+                new THREE.Vector3(0.066, 0.165, -0.062)
+            ], 0.0042, 0.0020, trunkMat));
+
+            // Tree 3 small twigs
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.067, 0.082, -0.064),
+                new THREE.Vector3(0.088, 0.105, -0.054)
+            ], 0.0025, 0.0012, trunkMat));
+
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.067, 0.095, -0.064),
+                new THREE.Vector3(0.052, 0.115, -0.046)
+            ], 0.0022, 0.0012, trunkMat));
+
+            targetTemplateMesh.add(treesGroup);
+
+            // Fluffy Dusty-Pink / Cream Leaf-Card Canopy Clouds matching all 8 reference angles
+            const canopyClusters = [
+                // Tree 1 Crown (high double-lobed cloud)
+                { x: -0.048, y: 0.355, z: -0.056, rx: 0.042, ry: 0.040, rz: 0.042, count: 240, leafScale: 1.05 },
+                { x: -0.005, y: 0.335, z: -0.068, rx: 0.038, ry: 0.036, rz: 0.038, count: 210, leafScale: 1.0 },
+                { x: -0.032, y: 0.315, z: -0.045, rx: 0.030, ry: 0.028, rz: 0.030, count: 140, leafScale: 0.95 },
+
+                // Tree 1 Front-Left Lower Arm Cloud (overhangs left edge of curved path)
+                { x: -0.052, y: 0.192, z: 0.015, rx: 0.038, ry: 0.036, rz: 0.040, count: 210, leafScale: 0.95 },
+                { x: -0.032, y: 0.168, z: 0.012, rx: 0.026, ry: 0.024, rz: 0.026, count: 110, leafScale: 0.85 },
+
+                // Tree 2 Canopy Clouds (center & right)
+                { x: 0.008, y: 0.215, z: -0.052, rx: 0.040, ry: 0.038, rz: 0.040, count: 220, leafScale: 0.95 },
+                { x: 0.056, y: 0.190, z: -0.035, rx: 0.040, ry: 0.036, rz: 0.038, count: 210, leafScale: 0.95 },
+                { x: 0.048, y: 0.138, z: -0.072, rx: 0.026, ry: 0.024, rz: 0.026, count: 110, leafScale: 0.8 },
+                { x: -0.018, y: 0.145, z: -0.012, rx: 0.022, ry: 0.020, rz: 0.022, count: 90, leafScale: 0.8 },
+
+                // Tree 3 Sapling Mini-Clouds (back-right)
+                { x: 0.066, y: 0.178, z: -0.062, rx: 0.024, ry: 0.022, rz: 0.024, count: 100, leafScale: 0.78 },
+                { x: 0.090, y: 0.112, z: -0.052, rx: 0.014, ry: 0.014, rz: 0.014, count: 50, leafScale: 0.65 },
+                { x: 0.050, y: 0.122, z: -0.044, rx: 0.013, ry: 0.013, rz: 0.013, count: 45, leafScale: 0.65 }
+            ];
+            addLeafCluster(treesGroup, canopyClusters);
         }
 
         function buildFrisbeeMesh() {
@@ -637,19 +891,18 @@
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
-            // Spawn directly where the camera is currently looking to simulate locking onto the scanned 8.5" x 11" image
+            // Spawn the 3D park environment sitting upright on top of the scanned reticle ~3 feet away
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // Exactly 3 feet away
-            
+            scanPos.y -= 0.14; // Place grass base slightly below eye-line so the 3D diorama rises naturally on top of the reticle
+
             const targetClone = targetTemplateMesh.clone();
             targetClone.position.copy(scanPos);
-            targetClone.lookAt(camera.position);
 
-            // Re-apply stencil test settings on cloned GLB materials
-            const glbContainer = targetClone.getObjectByName('glb-container');
-            if (glbContainer) {
-                applyStencilMaskToModel(glbContainer);
-            }
+            // Keep diorama upright (trees vertical) while rotating horizontally to face the player's front view
+            const toCamX = camera.position.x - scanPos.x;
+            const toCamZ = camera.position.z - scanPos.z;
+            targetClone.rotation.set(0, Math.atan2(toCamX, toCamZ), 0);
 
             targetClone.userData.hitsRemaining = 3;
 
@@ -684,9 +937,18 @@
             frisbeeActive = true;
 
             if (isHit && currentTarget) {
-                // Aim directly at the active target's 3D center
+                // Aim directly at the purple disc golf basket inside the 3D park environment
                 targetAim = currentTarget;
-                const dirToTarget = new THREE.Vector3().subVectors(currentTarget.position, frisbeeMesh.position).normalize();
+                const aimPoint = new THREE.Vector3();
+                const basket = currentTarget.getObjectByName('disc-golf-basket');
+                if (basket) {
+                    basket.getWorldPosition(aimPoint);
+                    aimPoint.y += 0.025;
+                } else {
+                    currentTarget.getWorldPosition(aimPoint);
+                    aimPoint.y += 0.08;
+                }
+                const dirToTarget = new THREE.Vector3().subVectors(aimPoint, frisbeeMesh.position).normalize();
                 frisbeeVelocity.copy(dirToTarget).multiplyScalar(2.8);
             } else {
                 // Miss trajectory based on how much player over/under-charged
@@ -708,16 +970,16 @@
 
             targetObj.userData.hitsRemaining = (targetObj.userData.hitsRemaining || 1) - 1;
 
-            // Subtle scale pulse feedback on the masked GLB scene
-            const glbContainer = targetObj.getObjectByName('glb-container');
-            if (glbContainer) {
-                glbContainer.scale.set(1.12, 1.12, 1.12);
+            // Subtle scale pulse feedback on the disc golf basket when hit
+            const basket = targetObj.getObjectByName('disc-golf-basket');
+            if (basket) {
+                basket.scale.set(1.22, 1.22, 1.22);
                 setTimeout(() => {
-                    if (glbContainer) glbContainer.scale.set(1, 1, 1);
+                    if (basket) basket.scale.set(1, 1, 1);
                 }, 180);
             }
 
-            // After 3 hits, clear target & rescan for the scannable image
+            // After 3 hits, clear target & rescan for the scannable reticle
             if (targetObj.userData.hitsRemaining <= 0) {
                 scene.remove(targetObj);
                 activeTargets = activeTargets.filter(t => t !== targetObj);
@@ -812,23 +1074,32 @@
             }
 
             // Apply Visual-Inertial Tracking to Camera
-            if (controls) {
+            if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
                 controls.update();
             }
 
-            // Update 3D Frisbee Flight & Collision Detection
-            if (frisbeeActive && frisbeeMesh) {
+            // Update 3D Frisbee Flight & Check Collisions
+            if (frisbeeActive) {
                 frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
-                frisbeeMesh.rotation.y += 18 * dt; // Aerodynamic spin
+                frisbeeMesh.rotation.y += 18 * dt; // Fast aerodynamic disc spin
 
-                // Check 3D collider intersection against active 8.5" x 11" GLB portal targets
+                // Check 3D collider intersection against active 3D park environment / disc golf basket
                 let collidedTarget = null;
                 const frisbeeRadius = 0.078;
-                const portalHitRadius = Math.max(PORTAL_WIDTH_M, PORTAL_HEIGHT_M) * 0.5;
+                const targetHitRadius = Math.max(DIORAMA_WIDTH_M, DIORAMA_DEPTH_M) * 0.5;
+                const targetCenter = new THREE.Vector3();
 
                 for (const target of activeTargets) {
-                    const dist = frisbeeMesh.position.distanceTo(target.position);
-                    if (dist <= (frisbeeRadius + portalHitRadius)) {
+                    const basket = target.getObjectByName('disc-golf-basket');
+                    if (basket) {
+                        basket.getWorldPosition(targetCenter);
+                        targetCenter.y += 0.025;
+                    } else {
+                        target.getWorldPosition(targetCenter);
+                        targetCenter.y += 0.08;
+                    }
+                    const dist = frisbeeMesh.position.distanceTo(targetCenter);
+                    if (dist <= (frisbeeRadius + targetHitRadius)) {
                         collidedTarget = target;
                         break;
                     }
