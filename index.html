@@ -409,491 +409,94 @@
             return tex;
         }
 
+        function createInteriorSkyTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // Soft sunlit sky gradient fading to warm pale horizon inside the recessed portal
+            const grad = ctx.createLinearGradient(0, 0, 0, 256);
+            grad.addColorStop(0.0, '#6aa6d8');
+            grad.addColorStop(0.55, '#b6d8f2');
+            grad.addColorStop(0.88, '#e8efe6');
+            grad.addColorStop(1.0, '#3e4f34');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 128, 256);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
         function createBranchTube(pointsArr, radiusBottom, radiusTop, material) {
-            const curve = new THREE.CatmullRomCurve3(pointsArr);
-            const tubularSegments = 16;
-            const radialSegments = 10;
-            const geo = new THREE.TubeGeometry(curve, tubularSegments, 1, radialSegments, false);
-
-            // Taper radius smoothly from base to tip
-            const pos = geo.attributes.position;
-            const v = new THREE.Vector3();
-            const center = new THREE.Vector3();
-
-            for (let i = 0; i <= tubularSegments; i++) {
-                const t = i / tubularSegments;
-                curve.getPointAt(t, center);
-                // Slight root flare at the very bottom
-                const flare = t < 0.12 ? (1 + (0.12 - t) * 2.2) : 1.0;
-                const r = THREE.MathUtils.lerp(radiusBottom, radiusTop, t) * flare;
-
-                for (let j = 0; j <= radialSegments; j++) {
-                    const idx = i * (radialSegments + 1) + j;
-                    v.fromBufferAttribute(pos, idx);
-                    v.sub(center).multiplyScalar(r).add(center);
-                    pos.setXYZ(idx, v.x, v.y, v.z);
-                }
-            }
-            geo.computeVertexNormals();
-
-            const mesh = new THREE.Mesh(geo, material);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            return mesh;
-        }
-
-        function addLeafCluster(parentGroup, clusters) {
-            // Create a pointed leaf-card diamond geometry matching the Blender reference foliage
-            const leafShape = new THREE.Shape();
-            leafShape.moveTo(0, 0.0085);
-            leafShape.quadraticCurveTo(0.0048, 0.002, 0, -0.0065);
-            leafShape.quadraticCurveTo(-0.0048, 0.002, 0, 0.0085);
-
-            const leafGeo = new THREE.ShapeGeometry(leafShape, 3);
-            const leafMat = new THREE.MeshStandardMaterial({
-                color: 0xffffff,
-                roughness: 0.72,
-                metalness: 0.04,
-                side: THREE.DoubleSide
-            });
-
-            // Count total instanced leaves across all canopy clouds
-            let totalLeaves = 0;
-            clusters.forEach(c => { totalLeaves += c.count; });
-
-            const instancedLeaves = new THREE.InstancedMesh(leafGeo, leafMat, totalLeaves);
-            instancedLeaves.castShadow = true;
-            instancedLeaves.receiveShadow = true;
-
-            const dummy = new THREE.Object3D();
-            const color = new THREE.Color();
-            const leafPalette = [
-                0xe6cec4, // warm light cream-blush (top highlights)
-                0xd9b5a6, // dusty rose-beige
-                0xc79d8d, // muted terracotta pink
-                0xb08474, // deeper warm taupe
-                0x6e4a3e  // dark shaded interior leaf
-            ];
-
-            let index = 0;
-            clusters.forEach((c) => {
-                for (let i = 0; i < c.count; i++) {
-                    // Distribute leaves densely on and inside an organic ellipsoid cloud
-                    const u = Math.random();
-                    const v = Math.random();
-                    const theta = u * 2.0 * Math.PI;
-                    const phi = Math.acos(2.0 * v - 1.0);
-                    const radScale = Math.pow(Math.random(), 0.35);
-
-                    const rx = c.rx * radScale * Math.sin(phi) * Math.cos(theta);
-                    const ry = c.ry * radScale * Math.cos(phi);
-                    const rz = c.rz * radScale * Math.sin(phi) * Math.sin(theta);
-
-                    dummy.position.set(c.x + rx, c.y + ry, c.z + rz);
-                    dummy.rotation.set(
-                        Math.random() * Math.PI * 2,
-                        Math.random() * Math.PI * 2,
-                        Math.random() * Math.PI * 2
-                    );
-                    const s = (0.75 + Math.random() * 0.75) * (c.leafScale || 1.0);
-                    dummy.scale.set(s, s, s);
-                    dummy.updateMatrix();
-                    instancedLeaves.setMatrixAt(index, dummy.matrix);
-
-                    // Top leaves brighter blush-cream, underside leaves darker brown-rose like reference renders
-                    const heightBias = (ry / (c.ry || 1) + 1) * 0.5; // 0 bottom -> 1 top
-                    let colorHex = leafPalette[Math.floor(Math.random() * 3)];
-                    if (heightBias < 0.38) {
-                        colorHex = Math.random() < 0.65 ? 0x523127 : 0x7d5346;
-                    } else if (heightBias > 0.72) {
-                        colorHex = Math.random() < 0.6 ? 0xefd9cf : 0xdeb9aa;
-                    }
-                    color.setHex(colorHex);
-                    instancedLeaves.setColorAt(index, color);
-                    index++;
-                }
-            });
-
-            instancedLeaves.instanceMatrix.needsUpdate = true;
-            if (instancedLeaves.instanceColor) {
-                instancedLeaves.instanceColor.needsUpdate = true;
-            }
-            parentGroup.add(instancedLeaves);
-        }
-
-        function buildTargetTemplate() {
-            // Root group for the entire 3D Park Environment + Occluder Box sitting on the scannable reticle
-            targetTemplateMesh = new THREE.Group();
-            targetTemplateMesh.name = 'park-diorama-root';
-
-            // Container for the 3D park environment, recessed behind the z = 0 front opening
-            const parkContentGroup = new THREE.Group();
-            parkContentGroup.name = 'park-content-group';
-
-            const W = DIORAMA_WIDTH_M;  // X width: 0.2159m (-0.108 to +0.108)
-            const D = DIORAMA_DEPTH_M;  // Z depth: 0.2794m (-0.140 back to +0.140 front)
-            const baseThickness = 0.008;
-
-            // 1. Grass Base Platform (rectangular 8.5" x 11" proportion)
-            const grassTex = createGrassTexture();
-            const grassTopMat = new THREE.MeshStandardMaterial({
-                map: grassTex,
-                roughness: 0.92,
-                metalness: 0.0
-            });
-            const grassEdgeMat = new THREE.MeshStandardMaterial({ color: 0x3b6622, roughness: 0.95 });
-            const grassBase = new THREE.Mesh(
-                new THREE.BoxGeometry(W, baseThickness, D),
-                [grassEdgeMat, grassEdgeMat, grassTopMat, grassEdgeMat, grassEdgeMat, grassEdgeMat]
-            );
-            grassBase.position.set(0, baseThickness * 0.5, 0);
-            grassBase.receiveShadow = true;
-            grassBase.castShadow = true;
-            parkContentGroup.add(grassBase);
-
-            // Subtle pale trim strip along the back edge (visible in topview & backview)
-            const backTrim = new THREE.Mesh(
-                new THREE.BoxGeometry(W, baseThickness * 0.85, 0.005),
-                new THREE.MeshStandardMaterial({ color: 0xd8dfd0, roughness: 0.85 })
-            );
-            backTrim.position.set(0, baseThickness * 0.52, -D * 0.5 + 0.0025);
-            backTrim.receiveShadow = true;
-            parkContentGroup.add(backTrim);
-
-            // 2. Curved Off-White Pathway (sweeps from mid-left -> front-center -> mid-right)
-            const pathCurve = new THREE.CatmullRomCurve3([
-                new THREE.Vector3(-W * 0.49, 0, 0.010),
-                new THREE.Vector3(-W * 0.36, 0, 0.056),
-                new THREE.Vector3(-W * 0.08, 0, 0.082),
-                new THREE.Vector3(W * 0.22, 0, 0.072),
-                new THREE.Vector3(W * 0.37, 0, 0.030),
-                new THREE.Vector3(W * 0.495, 0, -0.008)
-            ]);
-            const pathPoints = pathCurve.getPoints(36);
-            const halfPathW = 0.0175;
-            const pathShapePtsLeft = [];
-            const pathShapePtsRight = [];
-
-            for (let i = 0; i < pathPoints.length; i++) {
-                const p = pathPoints[i];
-                const tangent = pathCurve.getTangent(i / (pathPoints.length - 1)).normalize();
-                const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
-                pathShapePtsLeft.push(new THREE.Vector2(p.x + normal.x * halfPathW, -(p.z + normal.z * halfPathW)));
-                pathShapePtsRight.push(new THREE.Vector2(p.x - normal.x * halfPathW, -(p.z - normal.z * halfPathW)));
-            }
-            const pathShape = new THREE.Shape(pathShapePtsLeft.concat(pathShapePtsRight.reverse()));
-            const pathGeo = new THREE.ExtrudeGeometry(pathShape, { depth: 0.0035, bevelEnabled: false });
-            pathGeo.rotateX(-Math.PI / 2);
-            const pathMat = new THREE.MeshStandardMaterial({
-                color: 0xebe8e0,
-                roughness: 0.82,
-                metalness: 0.02
-            });
-            const pathwayMesh = new THREE.Mesh(pathGeo, pathMat);
-            pathwayMesh.position.y = baseThickness;
-            pathwayMesh.receiveShadow = true;
-            parkContentGroup.add(pathwayMesh);
-
-            // 3. Front-Left Purple Block with Pastel Pink Top (retaining wall / bench accent)
-            const blockW = W * 0.56;
-            const blockH = 0.044;
-            const blockD = 0.024;
-            const purpleSideMat = new THREE.MeshStandardMaterial({ color: 0x6b1d57, roughness: 0.55 });
-            const pinkTopMat = new THREE.MeshStandardMaterial({ color: 0xfad2e9, roughness: 0.45 });
-            const accentBlock = new THREE.Mesh(
-                new THREE.BoxGeometry(blockW, blockH, blockD),
-                [purpleSideMat, purpleSideMat, pinkTopMat, purpleSideMat, purpleSideMat, purpleSideMat]
-            );
-            // Positioned flush along the front-left edge, extending slightly left and down as in the references
-            accentBlock.position.set(-W * 0.34, -blockH * 0.30 + baseThickness, D * 0.5 + blockD * 0.42);
-            accentBlock.castShadow = true;
-            accentBlock.receiveShadow = true;
-            parkContentGroup.add(accentBlock);
-
-            // 4. Dark Reddish-Brown Modern Lamp Post (front-right bend of the pathway)
-            const lampGroup = new THREE.Group();
-            const lampMat = new THREE.MeshStandardMaterial({
-                color: 0x3b0c08,
-                roughness: 0.32,
-                metalness: 0.18
-            });
-            const postH = 0.165;
-            const lampPole = new THREE.Mesh(new THREE.BoxGeometry(0.011, postH, 0.011), lampMat);
-            lampPole.position.y = postH * 0.5;
-            lampPole.castShadow = true;
-            lampGroup.add(lampPole);
-
-            // Overhanging rectangular luminaire head + small top nub
-            const lampHead = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.015, 0.020), lampMat);
-            lampHead.position.set(-0.008, postH - 0.004, 0);
-            lampHead.castShadow = true;
-            lampGroup.add(lampHead);
-
-            const lampNub = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.006, 0.007), lampMat);
-            lampNub.position.set(-0.008, postH + 0.006, 0);
-            lampGroup.add(lampNub);
-
-            // Subtle warm glowing lens underneath head
-            const lampLens = new THREE.Mesh(
-                new THREE.PlaneGeometry(0.018, 0.012),
-                new THREE.MeshBasicMaterial({ color: 0xffe9b5, side: THREE.DoubleSide })
-            );
-            lampLens.rotation.x = Math.PI / 2;
-            lampLens.position.set(-0.012, postH - 0.012, 0);
-            lampGroup.add(lampLens);
-
-            lampGroup.position.set(0.044, baseThickness, 0.070);
-            lampGroup.rotation.y = 0.52;
-            parkContentGroup.add(lampGroup);
-
-            // 5. Green Cylindrical Garbage Can (next to lamp post, inside curve of path)
-            const trashGroup = new THREE.Group();
-            const trashMat = new THREE.MeshStandardMaterial({
-                color: 0x2f5222,
-                roughness: 0.52,
-                metalness: 0.35
-            });
-            const trashBody = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.010, 0.028, 18), trashMat);
-            trashBody.position.y = 0.014;
-            trashBody.castShadow = true;
-            trashBody.receiveShadow = true;
-            trashGroup.add(trashBody);
-
-            // Top rim and middle reinforcement band
-            const trashRim = new THREE.Mesh(new THREE.TorusGeometry(0.0108, 0.0014, 8, 18), trashMat);
-            trashRim.rotation.x = Math.PI / 2;
-            trashRim.position.y = 0.0275;
-            trashGroup.add(trashRim);
-
-            const trashBand = new THREE.Mesh(new THREE.TorusGeometry(0.0106, 0.0011, 8, 18), trashMat);
-            trashBand.rotation.x = Math.PI / 2;
-            trashBand.position.y = 0.014;
-            trashGroup.add(trashBand);
-
-            const trashHole = new THREE.Mesh(
-                new THREE.CircleGeometry(0.0095, 16),
-                new THREE.MeshStandardMaterial({ color: 0x0d140a, roughness: 0.9 })
-            );
-            trashHole.rotation.x = -Math.PI / 2;
-            trashHole.position.y = 0.0281;
-            trashGroup.add(trashHole);
-
-            trashGroup.position.set(0.024, baseThickness, 0.052);
-            parkContentGroup.add(trashGroup);
-
-            // 6. Purple Disc Golf Basket (interactive target center nestled near the trees)
-            const basketGroup = new THREE.Group();
-            basketGroup.name = 'disc-golf-basket';
-            const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.4, metalness: 0.7 });
-            const purpleBandMat = new THREE.MeshStandardMaterial({ color: 0x6b5ce7, roughness: 0.35, metalness: 0.25 });
-            const chainMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.3, metalness: 0.85 });
-
-            // Center pole & base
-            const basketPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0018, 0.044, 10), metalMat);
-            basketPole.position.y = 0.022;
-            basketPole.castShadow = true;
-            basketGroup.add(basketPole);
-
-            const basketFoot = new THREE.Mesh(new THREE.TorusGeometry(0.008, 0.0012, 6, 14), metalMat);
-            basketFoot.rotation.x = Math.PI / 2;
-            basketFoot.position.y = 0.0015;
-            basketGroup.add(basketFoot);
-
-            // Lower catching tray
-            const catchTray = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.0095, 0.0045, 16, 1, true), metalMat);
-            catchTray.position.y = 0.019;
-            basketGroup.add(catchTray);
-
-            const catchRing = new THREE.Mesh(new THREE.TorusGeometry(0.013, 0.0012, 6, 16), metalMat);
-            catchRing.rotation.x = Math.PI / 2;
-            catchRing.position.y = 0.021;
-            basketGroup.add(catchRing);
-
-            // Top purple band/cap
-            const topBand = new THREE.Mesh(new THREE.CylinderGeometry(0.0125, 0.0125, 0.0045, 18), purpleBandMat);
-            topBand.position.y = 0.042;
-            topBand.castShadow = true;
-            basketGroup.add(topBand);
-
-            // Hanging chains ring
-            const numChains = 10;
-            for (let i = 0; i < numChains; i++) {
-                const angle = (i / numChains) * Math.PI * 2;
-                const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.00045, 0.00045, 0.020, 5), chainMat);
-                chain.position.set(Math.cos(angle) * 0.0075, 0.030, Math.sin(angle) * 0.0075);
-                chain.rotation.z = Math.cos(angle) * 0.14;
-                chain.rotation.x = -Math.sin(angle) * 0.14;
-                basketGroup.add(chain);
-            }
-
-            basketGroup.position.set(-0.028, baseThickness, 0.002);
-            parkContentGroup.add(basketGroup);
-
-            // 7. Three Stylized Olive-Green Trees with Fluffy Dusty-Pink Leaf-Card Canopies
-            const trunkMat = new THREE.MeshStandardMaterial({
-                color: 0x3e521d,
-                roughness: 0.86,
-                metalness: 0.02
-            });
-            const treesGroup = new THREE.Group();
-            treesGroup.position.y = baseThickness;
-
-            // --- Tree 1: Tallest Hero Tree (Back-Left) ---
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.056, 0.0, -0.068),
-                new THREE.Vector3(-0.058, 0.12, -0.070),
-                new THREE.Vector3(-0.052, 0.24, -0.064),
-                new THREE.Vector3(-0.045, 0.34, -0.056)
-            ], 0.0145, 0.006, trunkMat));
-
-            // Tree 1 upper-left Y-fork limb
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.053, 0.22, -0.065),
-                new THREE.Vector3(-0.020, 0.27, -0.072),
-                new THREE.Vector3(-0.005, 0.325, -0.068)
-            ], 0.009, 0.0045, trunkMat));
-
-            // Tree 1 mid-height reaching arm toward front-left
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.057, 0.115, -0.069),
-                new THREE.Vector3(-0.052, 0.142, -0.022),
-                new THREE.Vector3(-0.050, 0.175, 0.015)
-            ], 0.0095, 0.0045, trunkMat));
-
-            // --- Tree 2: Medium Tree (Center-Back) ---
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.004, 0.0, -0.052),
-                new THREE.Vector3(0.002, 0.095, -0.048),
-                new THREE.Vector3(0.006, 0.195, -0.050)
-            ], 0.0125, 0.0055, trunkMat));
-
-            // Tree 2 right spreading branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.003, 0.11, -0.049),
-                new THREE.Vector3(0.036, 0.145, -0.045),
-                new THREE.Vector3(0.055, 0.18, -0.038)
-            ], 0.0075, 0.0035, trunkMat));
-
-            // Tree 2 front-left branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.003, 0.115, -0.048),
-                new THREE.Vector3(-0.018, 0.145, -0.018),
-                new THREE.Vector3(-0.030, 0.165, 0.004)
-            ], 0.0068, 0.0032, trunkMat));
-
-            // Tree 2 lower-right twig
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.003, 0.075, -0.050),
-                new THREE.Vector3(0.032, 0.098, -0.065),
-                new THREE.Vector3(0.048, 0.125, -0.072)
-            ], 0.0055, 0.0022, trunkMat));
-
-            // --- Tree 3: Slender Sapling (Back-Right) ---
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.068, 0.0, -0.064),
-                new THREE.Vector3(0.067, 0.085, -0.065),
-                new THREE.Vector3(0.066, 0.165, -0.062)
-            ], 0.0042, 0.0020, trunkMat));
-
-            // Tree 3 small twigs
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.067, 0.082, -0.064),
-                new THREE.Vector3(0.088, 0.105, -0.054)
-            ], 0.0025, 0.0012, trunkMat));
-
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.067, 0.095, -0.064),
-                new THREE.Vector3(0.052, 0.115, -0.046)
-            ], 0.0022, 0.0012, trunkMat));
-
-            parkContentGroup.add(treesGroup);
-
-            // Fluffy Dusty-Pink / Cream Leaf-Card Canopy Clouds matching all 8 reference angles
-            const canopyClusters = [
-                // Tree 1 Crown (high double-lobed cloud)
-                { x: -0.048, y: 0.355, z: -0.056, rx: 0.042, ry: 0.040, rz: 0.042, count: 240, leafScale: 1.05 },
-                { x: -0.005, y: 0.335, z: -0.068, rx: 0.038, ry: 0.036, rz: 0.038, count: 210, leafScale: 1.0 },
-                { x: -0.032, y: 0.315, z: -0.045, rx: 0.030, ry: 0.028, rz: 0.030, count: 140, leafScale: 0.95 },
-
-                // Tree 1 Front-Left Lower Arm Cloud (overhangs left edge of curved path)
-                { x: -0.052, y: 0.192, z: 0.015, rx: 0.038, ry: 0.036, rz: 0.040, count: 210, leafScale: 0.95 },
-                { x: -0.032, y: 0.168, z: 0.012, rx: 0.026, ry: 0.024, rz: 0.026, count: 110, leafScale: 0.85 },
-
-                // Tree 2 Canopy Clouds (center & right)
-                { x: 0.008, y: 0.215, z: -0.052, rx: 0.040, ry: 0.038, rz: 0.040, count: 220, leafScale: 0.95 },
-                { x: 0.056, y: 0.190, z: -0.035, rx: 0.040, ry: 0.036, rz: 0.038, count: 210, leafScale: 0.95 },
-                { x: 0.048, y: 0.138, z: -0.072, rx: 0.026, ry: 0.024, rz: 0.026, count: 110, leafScale: 0.8 },
-                { x: -0.018, y: 0.145, z: -0.012, rx: 0.022, ry: 0.020, rz: 0.022, count: 90, leafScale: 0.8 },
-
-                // Tree 3 Sapling Mini-Clouds (back-right)
-                { x: 0.066, y: 0.178, z: -0.062, rx: 0.024, ry: 0.022, rz: 0.024, count: 100, leafScale: 0.78 },
-                { x: 0.090, y: 0.112, z: -0.052, rx: 0.014, ry: 0.014, rz: 0.014, count: 50, leafScale: 0.65 },
-                { x: 0.050, y: 0.122, z: -0.044, rx: 0.013, ry: 0.013, rz: 0.013, count: 45, leafScale: 0.65 }
-            ];
+// ... existing code ... -->
             addLeafCluster(treesGroup, canopyClusters);
 
-            // Position the 3D park recessed inside the occluder box cavity behind the z = 0 front opening
-            parkContentGroup.position.set(0.01, 0, -0.17);
+            // Scale and recess the 3D park deeply inside the portal cavity behind the z = 0 opening
+            parkContentGroup.scale.setScalar(0.80);
+            parkContentGroup.position.set(0.008, 0.006, -0.185);
             parkContentGroup.traverse((child) => {
                 if (child.isMesh) {
-                    child.renderOrder = 1; // Render after the depth-occluder box
+                    child.renderOrder = 1; // Render inside the cavity after the occluder and inner walls
                 }
             });
             targetTemplateMesh.add(parkContentGroup);
 
-            // 8. Invisible Depth-Occluder Box (Depth Illusion / Hole-in-the-Wall Mask)
-            // Surrounds the entire 3D park environment on 5 sides (left, right, top, bottom, back)
-            // plus a front-plane mask flange around the opening so users only see through the front opening.
-            const boxWidth = 0.28;   // X: -0.14 to +0.14
-            const boxHeight = 0.46;  // Y: -0.035 to +0.425
-            const boxDepth = 0.34;   // Z: 0 (front opening) to -0.34 (back wall)
-            const centerY = 0.195;
+            // 8. Recessed Portal Cavity & Invisible Depth-Occluder Box (Hole-in-the-Wall Depth Illusion)
+            // Front opening matches the 8.5" x 11" scannable reticle footprint.
+            const portalW = DIORAMA_WIDTH_M;  // 0.2159m front opening width
+            const portalH = DIORAMA_DEPTH_M;  // 0.2794m front opening height
+            const centerY = portalH / 2;      // 0.1397m vertical center of front opening
 
+            // Recessed interior chamber is slightly wider & taller behind the opening so edges naturally occlude the park
+            const chamberW = 0.28;
+            const chamberH = 0.36;
+            const chamberDepth = 0.34;
+            const chamberMinY = -0.025;
+            const chamberMaxY = chamberMinY + chamberH;
+            const chamberCenterY = (chamberMinY + chamberMaxY) / 2;
+
+            // --- A. Invisible Outer Depth-Occluder Shell (renderOrder = -2) ---
+            // Writes to depth buffer without drawing color so everything outside the front opening stays hidden
             const occluderMat = new THREE.MeshBasicMaterial({
-                colorWrite: false,  // Invisible: lets the live camera feed / scannable image show through
-                depthWrite: true,   // Writes to depth buffer to hide any 3D geometry behind these walls
+                colorWrite: false,
+                depthWrite: true,
                 side: THREE.FrontSide
             });
 
             const occluderGroup = new THREE.Group();
             occluderGroup.name = 'occluder-box-group';
 
-            // Back exterior wall (normal pointing -Z)
-            const backWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxHeight), occluderMat);
+            // 5 outward-facing exterior walls sealing the recessed chamber from side, top, bottom, and rear angles
+            const backWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), occluderMat);
             backWall.rotation.y = Math.PI;
-            backWall.position.set(0, centerY, -boxDepth);
+            backWall.position.set(0, chamberCenterY, -chamberDepth);
             occluderGroup.add(backWall);
 
-            // Left exterior wall (normal pointing -X)
-            const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(boxDepth, boxHeight), occluderMat);
+            const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), occluderMat);
             leftWall.rotation.y = -Math.PI / 2;
-            leftWall.position.set(-boxWidth / 2, centerY, -boxDepth / 2);
+            leftWall.position.set(-chamberW / 2, chamberCenterY, -chamberDepth / 2);
             occluderGroup.add(leftWall);
 
-            // Right exterior wall (normal pointing +X)
-            const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(boxDepth, boxHeight), occluderMat);
+            const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), occluderMat);
             rightWall.rotation.y = Math.PI / 2;
-            rightWall.position.set(boxWidth / 2, centerY, -boxDepth / 2);
+            rightWall.position.set(chamberW / 2, chamberCenterY, -chamberDepth / 2);
             occluderGroup.add(rightWall);
 
-            // Top exterior wall (normal pointing +Y)
-            const topWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxDepth), occluderMat);
+            const topWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), occluderMat);
             topWall.rotation.x = -Math.PI / 2;
-            topWall.position.set(0, centerY + boxHeight / 2, -boxDepth / 2);
+            topWall.position.set(0, chamberMaxY, -chamberDepth / 2);
             occluderGroup.add(topWall);
 
-            // Bottom exterior wall (normal pointing -Y)
-            const bottomWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxDepth), occluderMat);
+            const bottomWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), occluderMat);
             bottomWall.rotation.x = Math.PI / 2;
-            bottomWall.position.set(0, centerY - boxHeight / 2, -boxDepth / 2);
+            bottomWall.position.set(0, chamberMinY, -chamberDepth / 2);
             occluderGroup.add(bottomWall);
 
-            // Front Mask Flange on the z = 0 scannable image plane with a rectangular opening cutout
-            // Ensures oblique viewing angles never reveal the recessed environment outside the front opening
-            const outerExtent = 1.4;
-            const halfW = boxWidth / 2;
-            const minY = centerY - boxHeight / 2;
-            const maxY = centerY + boxHeight / 2;
+            // Front Mask Flange on the z = 0 scannable image plane with the 8.5" x 11" opening cutout
+            const outerExtent = 2.0;
+            const halfPW = portalW / 2;
+            const minPY = 0;
+            const maxPY = portalH;
 
             const flangeShape = new THREE.Shape();
             flangeShape.moveTo(-outerExtent, centerY - outerExtent);
@@ -903,10 +506,10 @@
             flangeShape.closePath();
 
             const openingHole = new THREE.Path();
-            openingHole.moveTo(-halfW, minY);
-            openingHole.lineTo(-halfW, maxY);
-            openingHole.lineTo(halfW, maxY);
-            openingHole.lineTo(halfW, minY);
+            openingHole.moveTo(-halfPW, minPY);
+            openingHole.lineTo(-halfPW, maxPY);
+            openingHole.lineTo(halfPW, maxPY);
+            openingHole.lineTo(halfPW, minPY);
             openingHole.closePath();
             flangeShape.holes.push(openingHole);
 
@@ -914,83 +517,88 @@
             frontMaskFlange.position.set(0, 0, 0);
             occluderGroup.add(frontMaskFlange);
 
-            // Render all occluder surfaces before the 3D park environment
             occluderGroup.traverse((child) => {
                 if (child.isMesh) {
-                    child.renderOrder = -1;
+                    child.renderOrder = -2;
                 }
             });
-
             targetTemplateMesh.add(occluderGroup);
+
+            // --- B. Recessed Interior Chamber Backdrop & Shadowed Opening Rim (renderOrder = 0) ---
+            // Replaces the live camera feed inside the opening with a light blue recessed cavity so the park
+            // clearly lives *within* the scannable image rather than floating on top of it.
+            const cavityGroup = new THREE.Group();
+            cavityGroup.name = 'portal-cavity-group';
+
+            const innerWallMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, roughness: 0.85, side: THREE.FrontSide });
+            const innerCeilingMat = new THREE.MeshStandardMaterial({ color: 0xc2e6f5, roughness: 0.85, side: THREE.FrontSide });
+            const innerFloorMat = new THREE.MeshStandardMaterial({ color: 0x96cbe0, roughness: 0.9, side: THREE.FrontSide });
+            const rimShadowMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9, side: THREE.FrontSide });
+
+            // Inward-facing interior light blue walls (slightly inset from the outer occluder walls)
+            const innerBack = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), innerWallMat);
+            innerBack.position.set(0, chamberCenterY, -chamberDepth + 0.002);
+            cavityGroup.add(innerBack);
+
+            const innerLeft = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), innerWallMat);
+            innerLeft.rotation.y = Math.PI / 2;
+            innerLeft.position.set(-chamberW / 2 + 0.002, chamberCenterY, -chamberDepth / 2);
+            cavityGroup.add(innerLeft);
+
+            const innerRight = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), innerWallMat);
+            innerRight.rotation.y = -Math.PI / 2;
+            innerRight.position.set(chamberW / 2 - 0.002, chamberCenterY, -chamberDepth / 2);
+            cavityGroup.add(innerRight);
+
+            const innerTop = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), innerCeilingMat);
+            innerTop.rotation.x = Math.PI / 2;
+            innerTop.position.set(0, chamberMaxY - 0.002, -chamberDepth / 2);
+            cavityGroup.add(innerTop);
+
+            const innerBottom = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), innerFloorMat);
+            innerBottom.rotation.x = -Math.PI / 2;
+            innerBottom.position.set(0, chamberMinY + 0.002, -chamberDepth / 2);
+            cavityGroup.add(innerBottom);
+
+            // Recessed dark entrance collar (2.2cm deep) right inside the z = 0 opening for crisp wall-thickness depth cues
+            const collarDepth = 0.022;
+            const collarLeft = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
+            collarLeft.rotation.y = Math.PI / 2;
+            collarLeft.position.set(-halfPW, centerY, -collarDepth / 2);
+            cavityGroup.add(collarLeft);
+
+            const collarRight = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
+            collarRight.rotation.y = -Math.PI / 2;
+            collarRight.position.set(halfPW, centerY, -collarDepth / 2);
+            cavityGroup.add(collarRight);
+
+            const collarTop = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
+            collarTop.rotation.x = Math.PI / 2;
+            collarTop.position.set(0, maxPY, -collarDepth / 2);
+            cavityGroup.add(collarTop);
+
+            const collarBottom = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
+            collarBottom.rotation.x = -Math.PI / 2;
+            collarBottom.position.set(0, minPY, -collarDepth / 2);
+            cavityGroup.add(collarBottom);
+
+            cavityGroup.traverse((child) => {
+                if (child.isMesh) {
+                    child.renderOrder = 0;
+                }
+            });
+            targetTemplateMesh.add(cavityGroup);
         }
 
         function buildFrisbeeMesh() {
-            // LatheGeometry profile mimicking a Blender-modeled aerodynamic disc
-            const points = [
-                new THREE.Vector2(0.000, 0.014),
-                new THREE.Vector2(0.035, 0.014),
-                new THREE.Vector2(0.062, 0.011),
-                new THREE.Vector2(0.075, 0.005),
-                new THREE.Vector2(0.078, -0.004),
-                new THREE.Vector2(0.072, -0.006),
-                new THREE.Vector2(0.068, 0.004),
-                new THREE.Vector2(0.055, 0.009),
-                new THREE.Vector2(0.000, 0.010)
-            ];
-
-            const latheGeo = new THREE.LatheGeometry(points, 48);
-            const frisbeeMat = new THREE.MeshPhysicalMaterial({
-                color: 0x38bdf8,
-                roughness: 0.18,
-                metalness: 0.05,
-                clearcoat: 1.0,
-                clearcoatRoughness: 0.1,
-                side: THREE.DoubleSide
-            });
-
-            frisbeeMesh = new THREE.Mesh(latheGeo, frisbeeMat);
-            frisbeeMesh.castShadow = true;
-
-            // Add aerodynamic flight rings on top of the disc
-            const grooveGeo = new THREE.RingGeometry(0.045, 0.049, 48);
-            const grooveMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, side: THREE.DoubleSide });
-            const grooveMesh = new THREE.Mesh(grooveGeo, grooveMat);
-            grooveMesh.rotation.x = -Math.PI / 2;
-            grooveMesh.position.y = 0.0142;
-            frisbeeMesh.add(grooveMesh);
-
-            frisbeeMesh.renderOrder = 2;
-            frisbeeMesh.visible = false;
-            scene.add(frisbeeMesh);
-        }
-
-        function startScanningForReticle() {
-            isScanningMarker = true;
-            document.getElementById('top-banner').style.opacity = '0';
-            document.getElementById('bottom-slider').style.opacity = '0';
-            document.getElementById('scanner-ui').style.display = 'flex';
-
-            // Simulate the time it takes to detect "Scannable_Reticle.png"
-            setTimeout(() => {
-                if (!isGameActive || isGameOver) return;
-                
-                document.getElementById('scanner-ui').style.display = 'none';
-                document.getElementById('top-banner').style.opacity = '1';
-                document.getElementById('bottom-slider').style.opacity = '1';
-                isScanningMarker = false;
-                
-                spawnTargetOnReticle();
-                randomizeTargetLine();
-            }, 3000); // 3 second scan delay
-        }
-
+// ... existing code ... -->
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
             // Spawn the 3D park environment recessed inside its occluder box on the scanned reticle ~3 feet away
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // Exactly 3 feet away
-            scanPos.y -= 0.195; // Center the front opening of the occluder box on the scanned reticle
+            scanPos.y -= DIORAMA_DEPTH_M / 2; // Center the 8.5" x 11" front opening directly on the scanned reticle
 
             const targetClone = targetTemplateMesh.clone();
             targetClone.position.copy(scanPos);
@@ -1006,263 +614,28 @@
             activeTargets.push(targetClone);
             currentTarget = targetClone;
         }
-
-        function startChargingFrisbee() {
-            if (isGameOver || !isGameActive || frisbeeActive || isScanningMarker) return;
-            isCharging = true;
-            currentPower = 0;
-            powerDirection = 1;
-        }
-
-        function releaseFrisbee() {
-            if (!isGameActive || isGameOver || frisbeeActive || isScanningMarker) return;
-
-            const diff = Math.abs(currentPower - targetPower);
-            const isHit = diff <= tolerance;
-
-            // Spawn 3D frisbee just below camera view
-            const camPos = camera.position.clone();
-            const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-            const upVec = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-
-            frisbeeMesh.position.copy(camPos)
-                .addScaledVector(camDir, 0.15)
-                .addScaledVector(upVec, -0.10);
-            frisbeeMesh.quaternion.copy(camera.quaternion);
-            frisbeeMesh.visible = true;
-            frisbeeActive = true;
-
-            if (isHit && currentTarget) {
-                // Aim directly at the purple disc golf basket inside the 3D park environment
-                targetAim = currentTarget;
-                const aimPoint = new THREE.Vector3();
-                const basket = currentTarget.getObjectByName('disc-golf-basket');
-                if (basket) {
-                    basket.getWorldPosition(aimPoint);
-                    aimPoint.y += 0.025;
-                } else {
-                    currentTarget.getWorldPosition(aimPoint);
-                    aimPoint.y += 0.08;
-                }
-                const dirToTarget = new THREE.Vector3().subVectors(aimPoint, frisbeeMesh.position).normalize();
-                frisbeeVelocity.copy(dirToTarget).multiplyScalar(2.8);
-            } else {
-                // Miss trajectory based on how much player over/under-charged
-                targetAim = null;
-                const powerDelta = (currentPower - targetPower) / 100;
-                const missDir = camDir.clone();
-                missDir.y += powerDelta * 0.65;
-                missDir.x += (Math.random() - 0.5) * 0.25;
-                missDir.normalize();
-                frisbeeVelocity.copy(missDir).multiplyScalar(2.6);
-            }
-        }
-
-        function handleFrisbeeHit(targetObj) {
-            if (!targetObj) return;
-
-            // Slide "+ 1 Point" 2 pixels above the hit target
-            showScorePopupAboveTarget(targetObj);
-
-            targetObj.userData.hitsRemaining = (targetObj.userData.hitsRemaining || 1) - 1;
-
-            // Subtle scale pulse feedback on the disc golf basket when hit
-            const basket = targetObj.getObjectByName('disc-golf-basket');
-            if (basket) {
-                basket.scale.set(1.22, 1.22, 1.22);
-                setTimeout(() => {
-                    if (basket) basket.scale.set(1, 1, 1);
-                }, 180);
-            }
-
-            // After 3 hits, clear target & rescan for the scannable reticle
-            if (targetObj.userData.hitsRemaining <= 0) {
-                scene.remove(targetObj);
-                activeTargets = activeTargets.filter(t => t !== targetObj);
-                if (currentTarget === targetObj) {
-                    currentTarget = null;
-                }
-                startScanningForReticle();
-            } else {
-                randomizeTargetLine();
-            }
-        }
-
-        function handleFrisbeeMiss() {
-            misses++;
-            if (misses >= 20) {
-                isGameOver = true;
-                isCharging = false;
-                document.getElementById('continue-overlay').style.display = 'flex';
-            }
-        }
-
-        function continueGame() {
-            misses = 0;
-            isGameOver = false;
-            document.getElementById('continue-overlay').style.display = 'none';
-            updatePowerMeter(0);
-        }
-
-        function showScorePopupAboveTarget(targetObj) {
-            const popup = document.getElementById('score-popup');
-            const worldPos = new THREE.Vector3();
-            targetObj.getWorldPosition(worldPos);
-            worldPos.project(camera);
-
-            const screenX = (worldPos.x * 0.5 + 0.5) * window.innerWidth;
-            const screenY = (-(worldPos.y * 0.5) + 0.5) * window.innerHeight;
-
-            popup.style.transition = 'none';
-            popup.style.left = `${screenX}px`;
-            popup.style.top = `${screenY}px`;
-            popup.style.opacity = '1';
-            popup.style.transform = 'translate(-50%, -50%)';
-            popup.style.display = 'block';
-
-            // Force reflow then slide 2 pixels upwards
-            void popup.offsetWidth;
-            popup.style.transition = 'transform 0.45s ease-out, opacity 0.45s ease-out';
-            popup.style.transform = 'translate(-50%, calc(-50% - 2px))';
-            popup.style.opacity = '0';
-
-            setTimeout(() => {
-                popup.style.display = 'none';
-            }, 460);
-        }
-
-        function randomizeTargetLine() {
-            targetPower = Math.floor(Math.random() * 65) + 20; // Between 20% and 85%
-            document.getElementById('target-line').style.left = `${targetPower}%`;
-        }
-
-        function updatePowerMeter(power) {
-            const clamped = Math.max(0, Math.min(100, power));
-            document.querySelector('.slider-track-left').style.width = `${clamped}%`;
-            document.querySelector('.slider-track-right').style.width = `${100 - clamped}%`;
-        }
-
-        function onWindowResize() {
-            if (!camera || !renderer) return;
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // Main Three.js Animation Loop
-        let lastTime = performance.now();
-        function animate(now) {
-            requestAnimationFrame(animate);
-            const dt = Math.min((now - lastTime) / 1000, 0.05);
-            lastTime = now;
-
-            // Update Power Meter Charging
-            if (isCharging && !isGameOver) {
-                currentPower += chargeSpeed * powerDirection;
-                if (currentPower >= 100) {
-                    currentPower = 100;
-                    powerDirection = -1;
-                } else if (currentPower <= 0) {
-                    currentPower = 0;
-                    powerDirection = 1;
-                }
-                updatePowerMeter(currentPower);
-            }
-
-            // Apply Visual-Inertial Tracking to Camera
+// ... existing code ... -->
+            // Apply Visual-Inertial Tracking to Camera + Subtle Parallax Shift for Depth Illusion
             if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
                 controls.update();
+                if (currentTarget) {
+                    const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                    const toTarget = new THREE.Vector3().subVectors(currentTarget.position, new THREE.Vector3(0, 1.4, 0)).normalize();
+                    const parallaxX = THREE.MathUtils.clamp((lookDir.x - toTarget.x) * 0.25, -0.16, 0.16);
+                    const parallaxY = THREE.MathUtils.clamp((lookDir.y - toTarget.y) * 0.20, -0.12, 0.12);
+                    camera.position.x = THREE.MathUtils.lerp(camera.position.x, parallaxX, 0.12);
+                    camera.position.y = THREE.MathUtils.lerp(camera.position.y, 1.4 + parallaxY, 0.12);
+                }
             }
 
             // Update 3D Frisbee Flight & Check Collisions
-            if (frisbeeActive) {
-                frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
-                frisbeeMesh.rotation.y += 18 * dt; // Fast aerodynamic disc spin
-
-                // Check 3D collider intersection against active 3D park environment / disc golf basket
-                let collidedTarget = null;
-                const frisbeeRadius = 0.078;
-                const targetHitRadius = Math.max(DIORAMA_WIDTH_M, DIORAMA_DEPTH_M) * 0.5;
-                const targetCenter = new THREE.Vector3();
-
-                for (const target of activeTargets) {
-                    const basket = target.getObjectByName('disc-golf-basket');
-                    if (basket) {
-                        basket.getWorldPosition(targetCenter);
-                        targetCenter.y += 0.025;
-                    } else {
-                        target.getWorldPosition(targetCenter);
-                        targetCenter.y += 0.08;
-                    }
-                    const dist = frisbeeMesh.position.distanceTo(targetCenter);
-                    if (dist <= (frisbeeRadius + targetHitRadius)) {
-                        collidedTarget = target;
-                        break;
-                    }
-                }
-
-                if (collidedTarget) {
-                    frisbeeActive = false;
-                    frisbeeMesh.visible = false;
-                    handleFrisbeeHit(collidedTarget);
-                    updatePowerMeter(0);
-                } else if (frisbeeMesh.position.distanceTo(camera.position) > 1.8) {
-                    // Missed target and flew past arena wall
-                    frisbeeActive = false;
-                    frisbeeMesh.visible = false;
-                    handleFrisbeeMiss();
-                    updatePowerMeter(0);
-                }
-            }
-
-            renderer.render(scene, camera);
-        }
-
-        // Pointer / Touch Input: Tap & Hold to Charge/Throw, Drag to Look Around
-        function handlePointerDown(e) {
-            if (isGameOver || !isGameActive || (e.target && e.target.closest('.interactive-element'))) return;
-
-            isDraggingCamera = true;
-            pointerDownPos = { x: e.clientX, y: e.clientY };
-            lastPointerPos = { x: e.clientX, y: e.clientY };
-
-            if (!isCharging && !frisbeeActive) {
-                startChargingFrisbee();
-            }
-        }
-
-        function handlePointerMove(e) {
-            if (!isDraggingCamera || !camera) return;
-
-            const dx = e.clientX - lastPointerPos.x;
-            const dy = e.clientY - lastPointerPos.y;
-            lastPointerPos = { x: e.clientX, y: e.clientY };
-
-            // Manual drag-look is overridden by the device's visual-inertial tracking, 
-            // but we maintain the state for desktop testing fallback.
-            cameraYaw -= dx * 0.0035;
-            cameraPitch -= dy * 0.0035;
-
-            cameraYaw = Math.max(-0.85, Math.min(0.85, cameraYaw));
-            cameraPitch = Math.max(-0.45, Math.min(0.45, cameraPitch));
-            
+// ... existing code ... -->
             if (!controls || !controls.deviceOrientation || controls.deviceOrientation.alpha === null) {
                 camera.rotation.y = cameraYaw;
                 camera.rotation.x = cameraPitch;
+                // Add desktop parallax shift so dragging lets you peer inside the recessed portal cavity
+                camera.position.x = -Math.sin(cameraYaw) * 0.32;
+                camera.position.y = 1.4 + Math.sin(cameraPitch) * 0.22;
             }
         }
-
-        function handlePointerUp() {
-            isDraggingCamera = false;
-            if (isCharging) {
-                isCharging = false;
-                releaseFrisbee();
-            }
-        }
-
-        window.addEventListener('pointerdown', handlePointerDown);
-        window.addEventListener('pointermove', handlePointerMove);
-        window.addEventListener('pointerup', handlePointerUp);
-    </script>
-</body>
-</html>
+// ... existing code ... -->
