@@ -100,6 +100,10 @@
             box-shadow: 0 6px 10px rgba(0,0,0,0.3);
             cursor: pointer;
             opacity: 1;
+            position: relative;
+            z-index: 150;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
             transition: opacity 0.5s ease-in-out, transform 0.1s;
         }
         
@@ -283,30 +287,45 @@
 
         let isScanningMarker = false;
         let controls; // Visual-Inertial Tracker
+        let hasGameStarted = false;
 
         async function startCameraFeed() {
             const video = document.getElementById('camera-feed');
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+            if (!video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
             try {
+                video.setAttribute('playsinline', '');
+                video.muted = true;
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { ideal: 'environment' } },
                     audio: false
                 });
                 video.srcObject = stream;
-                await video.play();
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch((err) => console.warn('Video autoplay deferred:', err));
+                }
             } catch (err) {
                 console.warn('Camera feed unavailable or permission denied:', err);
             }
         }
 
-        async function startGame() {
+        async function startGame(e) {
+            if (e) {
+                e.stopPropagation();
+            }
+            if (hasGameStarted) return;
+            hasGameStarted = true;
+
             const button = document.getElementById('scan-btn');
-            button.style.transform = 'scale(0.9)';
-            setTimeout(() => {
-                button.style.transform = 'scale(1)';
-                button.style.opacity = '0';
-                button.style.pointerEvents = 'none';
-            }, 100);
+            if (button) {
+                button.style.transform = 'scale(0.9)';
+                setTimeout(() => {
+                    button.style.transform = 'scale(1)';
+                    button.style.opacity = '0';
+                    button.style.pointerEvents = 'none';
+                    button.style.display = 'none';
+                }, 120);
+            }
 
             // Request Device Orientation Permission for Visual-Inertial Tracking (iOS 13+)
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -320,15 +339,38 @@
                 }
             }
 
-            await startCameraFeed();
-
-            if (!renderer) {
-                initThreeJS();
+            // Initialize Three.js and start scanning immediately without letting camera prompts stall startup
+            try {
+                if (!renderer) {
+                    initThreeJS();
+                }
+                isGameActive = true;
+                startScanningForReticle();
+            } catch (err) {
+                console.error('Error initializing game:', err);
+                hasGameStarted = false;
             }
 
-            isGameActive = true;
-            startScanningForReticle();
+            // Start live camera feed asynchronously so mobile permission dialogs don't block the UI
+            startCameraFeed();
         }
+
+        // Bind mobile-safe touch handlers directly on Start Game so global canvas touch listeners cannot block taps
+        (function bindStartButtonTouch() {
+            const scanBtn = document.getElementById('scan-btn');
+            if (!scanBtn) return;
+
+            scanBtn.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+                scanBtn.style.transform = 'scale(0.95)';
+            }, { passive: true });
+
+            scanBtn.addEventListener('touchend', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                startGame(e);
+            }, { passive: false });
+        })();
 
         function initThreeJS() {
             const container = document.getElementById('three-container');
@@ -367,8 +409,14 @@
             environmentGroup = new THREE.Group();
             scene.add(environmentGroup);
 
-            // Initialize Device Orientation Tracking for AR feel
-            controls = new THREE.DeviceOrientationControls(camera);
+            // Initialize Device Orientation Tracking for AR feel (guarded for mobile browser compatibility)
+            if (typeof THREE.DeviceOrientationControls === 'function') {
+                try {
+                    controls = new THREE.DeviceOrientationControls(camera);
+                } catch (err) {
+                    console.warn('DeviceOrientationControls failed to initialize:', err);
+                }
+            }
 
             // Build the 3D Park Environment directly from the reference shots
             buildTargetTemplate();
