@@ -522,9 +522,13 @@
         }
 
         function buildTargetTemplate() {
-            // Root group for the entire 3D Park Environment sitting on top of the scannable reticle
+            // Root group for the entire 3D Park Environment + Occluder Box sitting on the scannable reticle
             targetTemplateMesh = new THREE.Group();
             targetTemplateMesh.name = 'park-diorama-root';
+
+            // Container for the 3D park environment, recessed behind the z = 0 front opening
+            const parkContentGroup = new THREE.Group();
+            parkContentGroup.name = 'park-content-group';
 
             const W = DIORAMA_WIDTH_M;  // X width: 0.2159m (-0.108 to +0.108)
             const D = DIORAMA_DEPTH_M;  // Z depth: 0.2794m (-0.140 back to +0.140 front)
@@ -545,7 +549,7 @@
             grassBase.position.set(0, baseThickness * 0.5, 0);
             grassBase.receiveShadow = true;
             grassBase.castShadow = true;
-            targetTemplateMesh.add(grassBase);
+            parkContentGroup.add(grassBase);
 
             // Subtle pale trim strip along the back edge (visible in topview & backview)
             const backTrim = new THREE.Mesh(
@@ -554,7 +558,7 @@
             );
             backTrim.position.set(0, baseThickness * 0.52, -D * 0.5 + 0.0025);
             backTrim.receiveShadow = true;
-            targetTemplateMesh.add(backTrim);
+            parkContentGroup.add(backTrim);
 
             // 2. Curved Off-White Pathway (sweeps from mid-left -> front-center -> mid-right)
             const pathCurve = new THREE.CatmullRomCurve3([
@@ -588,7 +592,7 @@
             const pathwayMesh = new THREE.Mesh(pathGeo, pathMat);
             pathwayMesh.position.y = baseThickness;
             pathwayMesh.receiveShadow = true;
-            targetTemplateMesh.add(pathwayMesh);
+            parkContentGroup.add(pathwayMesh);
 
             // 3. Front-Left Purple Block with Pastel Pink Top (retaining wall / bench accent)
             const blockW = W * 0.56;
@@ -604,7 +608,7 @@
             accentBlock.position.set(-W * 0.34, -blockH * 0.30 + baseThickness, D * 0.5 + blockD * 0.42);
             accentBlock.castShadow = true;
             accentBlock.receiveShadow = true;
-            targetTemplateMesh.add(accentBlock);
+            parkContentGroup.add(accentBlock);
 
             // 4. Dark Reddish-Brown Modern Lamp Post (front-right bend of the pathway)
             const lampGroup = new THREE.Group();
@@ -640,7 +644,7 @@
 
             lampGroup.position.set(0.044, baseThickness, 0.070);
             lampGroup.rotation.y = 0.52;
-            targetTemplateMesh.add(lampGroup);
+            parkContentGroup.add(lampGroup);
 
             // 5. Green Cylindrical Garbage Can (next to lamp post, inside curve of path)
             const trashGroup = new THREE.Group();
@@ -675,7 +679,7 @@
             trashGroup.add(trashHole);
 
             trashGroup.position.set(0.024, baseThickness, 0.052);
-            targetTemplateMesh.add(trashGroup);
+            parkContentGroup.add(trashGroup);
 
             // 6. Purple Disc Golf Basket (interactive target center nestled near the trees)
             const basketGroup = new THREE.Group();
@@ -723,7 +727,7 @@
             }
 
             basketGroup.position.set(-0.028, baseThickness, 0.002);
-            targetTemplateMesh.add(basketGroup);
+            parkContentGroup.add(basketGroup);
 
             // 7. Three Stylized Olive-Green Trees with Fluffy Dusty-Pink Leaf-Card Canopies
             const trunkMat = new THREE.MeshStandardMaterial({
@@ -802,7 +806,7 @@
                 new THREE.Vector3(0.052, 0.115, -0.046)
             ], 0.0022, 0.0012, trunkMat));
 
-            targetTemplateMesh.add(treesGroup);
+            parkContentGroup.add(treesGroup);
 
             // Fluffy Dusty-Pink / Cream Leaf-Card Canopy Clouds matching all 8 reference angles
             const canopyClusters = [
@@ -827,6 +831,97 @@
                 { x: 0.050, y: 0.122, z: -0.044, rx: 0.013, ry: 0.013, rz: 0.013, count: 45, leafScale: 0.65 }
             ];
             addLeafCluster(treesGroup, canopyClusters);
+
+            // Position the 3D park recessed inside the occluder box cavity behind the z = 0 front opening
+            parkContentGroup.position.set(0.01, 0, -0.17);
+            parkContentGroup.traverse((child) => {
+                if (child.isMesh) {
+                    child.renderOrder = 1; // Render after the depth-occluder box
+                }
+            });
+            targetTemplateMesh.add(parkContentGroup);
+
+            // 8. Invisible Depth-Occluder Box (Depth Illusion / Hole-in-the-Wall Mask)
+            // Surrounds the entire 3D park environment on 5 sides (left, right, top, bottom, back)
+            // plus a front-plane mask flange around the opening so users only see through the front opening.
+            const boxWidth = 0.28;   // X: -0.14 to +0.14
+            const boxHeight = 0.46;  // Y: -0.035 to +0.425
+            const boxDepth = 0.34;   // Z: 0 (front opening) to -0.34 (back wall)
+            const centerY = 0.195;
+
+            const occluderMat = new THREE.MeshBasicMaterial({
+                colorWrite: false,  // Invisible: lets the live camera feed / scannable image show through
+                depthWrite: true,   // Writes to depth buffer to hide any 3D geometry behind these walls
+                side: THREE.FrontSide
+            });
+
+            const occluderGroup = new THREE.Group();
+            occluderGroup.name = 'occluder-box-group';
+
+            // Back exterior wall (normal pointing -Z)
+            const backWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxHeight), occluderMat);
+            backWall.rotation.y = Math.PI;
+            backWall.position.set(0, centerY, -boxDepth);
+            occluderGroup.add(backWall);
+
+            // Left exterior wall (normal pointing -X)
+            const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(boxDepth, boxHeight), occluderMat);
+            leftWall.rotation.y = -Math.PI / 2;
+            leftWall.position.set(-boxWidth / 2, centerY, -boxDepth / 2);
+            occluderGroup.add(leftWall);
+
+            // Right exterior wall (normal pointing +X)
+            const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(boxDepth, boxHeight), occluderMat);
+            rightWall.rotation.y = Math.PI / 2;
+            rightWall.position.set(boxWidth / 2, centerY, -boxDepth / 2);
+            occluderGroup.add(rightWall);
+
+            // Top exterior wall (normal pointing +Y)
+            const topWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxDepth), occluderMat);
+            topWall.rotation.x = -Math.PI / 2;
+            topWall.position.set(0, centerY + boxHeight / 2, -boxDepth / 2);
+            occluderGroup.add(topWall);
+
+            // Bottom exterior wall (normal pointing -Y)
+            const bottomWall = new THREE.Mesh(new THREE.PlaneGeometry(boxWidth, boxDepth), occluderMat);
+            bottomWall.rotation.x = Math.PI / 2;
+            bottomWall.position.set(0, centerY - boxHeight / 2, -boxDepth / 2);
+            occluderGroup.add(bottomWall);
+
+            // Front Mask Flange on the z = 0 scannable image plane with a rectangular opening cutout
+            // Ensures oblique viewing angles never reveal the recessed environment outside the front opening
+            const outerExtent = 1.4;
+            const halfW = boxWidth / 2;
+            const minY = centerY - boxHeight / 2;
+            const maxY = centerY + boxHeight / 2;
+
+            const flangeShape = new THREE.Shape();
+            flangeShape.moveTo(-outerExtent, centerY - outerExtent);
+            flangeShape.lineTo(outerExtent, centerY - outerExtent);
+            flangeShape.lineTo(outerExtent, centerY + outerExtent);
+            flangeShape.lineTo(-outerExtent, centerY + outerExtent);
+            flangeShape.closePath();
+
+            const openingHole = new THREE.Path();
+            openingHole.moveTo(-halfW, minY);
+            openingHole.lineTo(-halfW, maxY);
+            openingHole.lineTo(halfW, maxY);
+            openingHole.lineTo(halfW, minY);
+            openingHole.closePath();
+            flangeShape.holes.push(openingHole);
+
+            const frontMaskFlange = new THREE.Mesh(new THREE.ShapeGeometry(flangeShape), occluderMat);
+            frontMaskFlange.position.set(0, 0, 0);
+            occluderGroup.add(frontMaskFlange);
+
+            // Render all occluder surfaces before the 3D park environment
+            occluderGroup.traverse((child) => {
+                if (child.isMesh) {
+                    child.renderOrder = -1;
+                }
+            });
+
+            targetTemplateMesh.add(occluderGroup);
         }
 
         function buildFrisbeeMesh() {
@@ -864,6 +959,7 @@
             grooveMesh.position.y = 0.0142;
             frisbeeMesh.add(grooveMesh);
 
+            frisbeeMesh.renderOrder = 2;
             frisbeeMesh.visible = false;
             scene.add(frisbeeMesh);
         }
@@ -891,10 +987,10 @@
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
-            // Spawn the 3D park environment sitting upright on top of the scanned reticle ~3 feet away
+            // Spawn the 3D park environment recessed inside its occluder box on the scanned reticle ~3 feet away
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // Exactly 3 feet away
-            scanPos.y -= 0.14; // Place grass base slightly below eye-line so the 3D diorama rises naturally on top of the reticle
+            scanPos.y -= 0.195; // Center the front opening of the occluder box on the scanned reticle
 
             const targetClone = targetTemplateMesh.clone();
             targetClone.position.copy(scanPos);
