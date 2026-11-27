@@ -277,7 +277,6 @@
         let scene, camera, renderer, targetTemplateMesh;
         let activeTargets = [];
         let currentTarget = null;
-        let environmentGroup;
         let controls = null; // Visual-Inertial Tracker
         let lastTime = 0;
 
@@ -286,911 +285,891 @@
         const DIORAMA_DEPTH_M = 0.2794;  // 11.0 inches
         const INITIAL_ANCHOR_DIST = 0.9144; // 3 feet initial distance
 
-        // World-Space Anchor & Visual Proximity Tracking Variables
-        let anchorWorldCenter = null;
-        let anchorNormal = new THREE.Vector3(0, 0, 1);
-        let currentCameraDist = INITIAL_ANCHOR_DIST;
-        let targetCameraDist = INITIAL_ANCHOR_DIST;
+        // World-Space Anchor & Visual Reticle Tracking Variables
+        let anchorQuaternion = new THREE.Quaternion();
+        let currentAnchorDist = INITIAL_ANCHOR_DIST;
+        let targetAnchorDist = INITIAL_ANCHOR_DIST;
         let referenceReticleRadius = null;
         let lastTrackTime = 0;
+        let lostTrackFrames = 0;
         let trackCanvas = null;
         let trackCtx = null;
+        const trackRaycaster = new THREE.Raycaster();
+        const trackNdc = new THREE.Vector2();
 
         // 3D Frisbee Variables
         let frisbeeMesh = null;
         let frisbeeActive = false;
         let frisbeeVelocity = new THREE.Vector3();
-        let frisbeeFlightTime = 0;
-        let frisbeeWillHit = false;
         let frisbeeTargetPoint = new THREE.Vector3();
+        let frisbeeFlightTime = 0;
+        let frisbeeIsHit = false;
 
-        // Desktop / Fallback Camera Look Variables
-        let isPointerDown = false;
-        let lastPointerPos = { x: 0, y: 0 };
+        // Desktop Fallback Camera Aim Variables
+        let isDraggingCamera = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
         let cameraYaw = 0;
         let cameraPitch = 0;
 
-        // Start rear camera feed without blocking UI
-        async function startCameraFeed() {
-            const video = document.getElementById('camera-feed');
-            if (!video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-            try {
-                video.setAttribute('playsinline', '');
-                video.muted = true;
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: 'environment' } },
-                    audio: false
-                });
-                video.srcObject = stream;
-                const playPromise = video.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch((err) => console.warn('Video autoplay deferred:', err));
-                }
-            } catch (err) {
-                console.warn('Camera feed unavailable or permission denied:', err);
-            }
-        }
-
-        // Main entry point triggered by tapping or clicking "Start Game"
-        async function startGame(e) {
-            if (e) {
-                e.stopPropagation();
-            }
-            if (hasGameStarted) return;
-            hasGameStarted = true;
-
-            const button = document.getElementById('scan-btn');
-            if (button) {
-                button.style.transform = 'scale(0.92)';
-                button.style.opacity = '0';
-                button.style.pointerEvents = 'none';
-                setTimeout(() => {
-                    button.style.display = 'none';
-                }, 250);
-            }
-
-            // Request iOS 13+ DeviceOrientation permission directly inside user gesture
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const permission = await DeviceOrientationEvent.requestPermission();
-                    if (permission !== 'granted') {
-                        console.warn('Device orientation permission not granted.');
-                    }
-                } catch (error) {
-                    console.warn('Device orientation permission request skipped:', error);
-                }
-            }
-
-            // Initialize Three.js scene and begin reticle scanning immediately
-            try {
-                if (!renderer) {
-                    initThreeJS();
-                }
-                isGameActive = true;
-                startScanningForReticle();
-            } catch (err) {
-                console.error('Error initializing Three.js game:', err);
-                hasGameStarted = false;
-                if (button) {
-                    button.style.display = 'block';
-                    button.style.opacity = '1';
-                    button.style.pointerEvents = 'auto';
-                }
-                return;
-            }
-
-            // Start live camera feed asynchronously so mobile permission dialogs don't stall startup
-            startCameraFeed();
-        }
-
-        function startScanningForReticle() {
-            isScanningMarker = true;
-            const scannerUI = document.getElementById('scanner-ui');
-            if (scannerUI) {
-                scannerUI.style.display = 'flex';
-            }
-
-            if (scanTimeoutId) clearTimeout(scanTimeoutId);
-            scanTimeoutId = setTimeout(() => {
-                finishScanningAndSpawn();
-            }, 2200);
-        }
-
-        function finishScanningAndSpawn() {
-            if (!isScanningMarker) return;
-            isScanningMarker = false;
-            if (scanTimeoutId) {
-                clearTimeout(scanTimeoutId);
-                scanTimeoutId = null;
-            }
-
-            const scannerUI = document.getElementById('scanner-ui');
-            if (scannerUI) {
-                scannerUI.style.display = 'none';
-            }
-
-            const topBanner = document.getElementById('top-banner');
-            const bottomSlider = document.getElementById('bottom-slider');
-            if (topBanner) {
-                topBanner.style.opacity = '1';
-                topBanner.style.pointerEvents = 'auto';
-            }
-            if (bottomSlider) {
-                bottomSlider.style.opacity = '1';
-                bottomSlider.style.pointerEvents = 'auto';
-            }
-
-            randomizeTargetLine();
-            spawnTargetOnReticle();
-        }
-
-        function initThreeJS() {
-            const container = document.getElementById('three-container');
-            scene = new THREE.Scene();
-            scene.background = null; // Transparent so live camera feed shows through
-
-            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.05, 50);
-            camera.position.set(0, 1.4, 0); // Eye level
-            camera.rotation.order = 'YXZ';
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setClearColor(0x000000, 0);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            container.appendChild(renderer.domElement);
-
-            // Lighting matching the park reference shots
-            const hemiLight = new THREE.HemisphereLight(0xfff5ec, 0x261712, 0.78);
-            scene.add(hemiLight);
-
-            const dirLight = new THREE.DirectionalLight(0xfffaf0, 1.35);
-            dirLight.position.set(1.8, 4.5, 2.2);
-            dirLight.castShadow = true;
-            dirLight.shadow.mapSize.width = 1024;
-            dirLight.shadow.mapSize.height = 1024;
-            dirLight.shadow.bias = -0.0005;
-            scene.add(dirLight);
-
-            const fillLight = new THREE.DirectionalLight(0xd8e2ff, 0.35);
-            fillLight.position.set(-2.0, 1.5, -2.0);
-            scene.add(fillLight);
-
-            environmentGroup = new THREE.Group();
-            scene.add(environmentGroup);
-
-            // Visual-Inertial Tracking via DeviceOrientationControls
-            if (typeof THREE.DeviceOrientationControls === 'function') {
-                try {
-                    controls = new THREE.DeviceOrientationControls(camera);
-                } catch (err) {
-                    console.warn('DeviceOrientationControls failed to initialize:', err);
-                }
-            }
-
-            // Build the 3D Park Environment + Recessed Light-Blue Portal Cavity + Invisible Occluder Box
-            buildTargetTemplate();
-
-            // Build Blender-Style 3D Frisbee
-            buildFrisbeeMesh();
-
-            window.addEventListener('resize', onWindowResize);
-            lastTime = performance.now();
-            requestAnimationFrame(animate);
-        }
-
+        // Procedural mottled grass texture matching reference shots
         function createGrassTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
             canvas.height = 256;
             const ctx = canvas.getContext('2d');
 
-            ctx.fillStyle = '#5c9436';
+            ctx.fillStyle = '#5da135';
             ctx.fillRect(0, 0, 256, 256);
 
-            const palette = ['#7eb84c', '#98cc64', '#427326', '#2e5718', '#b0db7d', '#548731'];
-            for (let i = 0; i < 4200; i++) {
-                ctx.fillStyle = palette[Math.floor(Math.random() * palette.length)];
+            const shades = ['#3a6e1d', '#4d8c28', '#78ba43', '#9bd15c', '#c3e084', '#2e5917'];
+            for (let i = 0; i < 3800; i++) {
+                ctx.fillStyle = shades[Math.floor(Math.random() * shades.length)];
                 const x = Math.random() * 256;
                 const y = Math.random() * 256;
                 const w = 1.5 + Math.random() * 3.5;
-                const h = 1.5 + Math.random() * 4.5;
+                const h = 2 + Math.random() * 5;
                 ctx.fillRect(x, y, w, h);
             }
 
             const tex = new THREE.CanvasTexture(canvas);
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(2, 2.6);
+            tex.repeat.set(2, 2.5);
             return tex;
         }
 
-        function createBranchTube(pointsArr, radiusBottom, radiusTop, material) {
-            const curve = new THREE.CatmullRomCurve3(pointsArr);
-            const segs = 12;
-            const radSegs = 8;
-            const geom = new THREE.TubeGeometry(curve, segs, radiusBottom, radSegs, false);
+        // Helper to build tapered olive-green tree trunks & branches
+        function addTaperedSegment(parent, startVec, endVec, rBottom, rTop, material) {
+            const dir = new THREE.Vector3().subVectors(endVec, startVec);
+            const len = dir.length();
+            if (len < 0.0001) return;
 
-            // Taper tube radius along length from radiusBottom to radiusTop
-            const pos = geom.attributes.position;
-            const v = new THREE.Vector3();
-            for (let i = 0; i <= segs; i++) {
-                const t = i / segs;
-                const center = curve.getPointAt(t);
-                const scale = THREE.MathUtils.lerp(1.0, radiusTop / radiusBottom, t);
-                for (let j = 0; j <= radSegs; j++) {
-                    const idx = i * (radSegs + 1) + j;
-                    v.fromBufferAttribute(pos, idx);
-                    v.sub(center).multiplyScalar(scale).add(center);
-                    pos.setXYZ(idx, v.x, v.y, v.z);
-                }
-            }
-            geom.computeVertexNormals();
-            const mesh = new THREE.Mesh(geom, material);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            return mesh;
+            const geo = new THREE.CylinderGeometry(rTop, rBottom, len, 10);
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.position.copy(startVec).addScaledVector(dir, 0.5);
+            mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+            parent.add(mesh);
         }
 
-        function addLeafCluster(parentGroup, clusters) {
-            // Leaf-card geometry (diamond-like angled blade)
-            const leafShape = new THREE.Shape();
-            leafShape.moveTo(0, 0);
-            leafShape.quadraticCurveTo(0.0042, 0.0045, 0, 0.0115);
-            leafShape.quadraticCurveTo(-0.0042, 0.0045, 0, 0);
-            const leafGeom = new THREE.ShapeGeometry(leafShape);
-
-            const leafMat = new THREE.MeshStandardMaterial({
-                color: 0xffffff,
-                roughness: 0.85,
-                metalness: 0.05,
-                side: THREE.DoubleSide
-            });
-
-            let totalLeaves = 0;
-            clusters.forEach((c) => { totalLeaves += c.count; });
-
-            const instancedLeaves = new THREE.InstancedMesh(leafGeom, leafMat, totalLeaves);
-            instancedLeaves.castShadow = true;
-            instancedLeaves.receiveShadow = true;
-
+        // Helper to build clustered dusty-pink / dark-underside leaf-card canopy
+        function addLeafCluster(parent, center, radius, leafCount, leafGeo, leafMat) {
+            const instanced = new THREE.InstancedMesh(leafGeo, leafMat, leafCount);
             const dummy = new THREE.Object3D();
             const color = new THREE.Color();
-            const topColor = new THREE.Color(0xe6c8be);     // Dusty cream-pink top highlights
-            const midColor = new THREE.Color(0xb88f84);     // Warm dusty rose
-            const darkColor = new THREE.Color(0x3a2018);    // Deep brown shaded undersides
 
-            let idx = 0;
-            clusters.forEach((c) => {
-                for (let i = 0; i < c.count; i++) {
-                    // Distribute leaves around spherical cluster volume
-                    const u = Math.random();
-                    const v = Math.random();
-                    const theta = u * 2.0 * Math.PI;
-                    const phi = Math.acos(2.0 * v - 1.0);
-                    const r = c.radius * (0.35 + 0.65 * Math.cbrt(Math.random()));
+            for (let i = 0; i < leafCount; i++) {
+                // Distribute leaves mostly on the shell of a slightly bumpy sphere
+                const u = Math.random();
+                const v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                const r = radius * (0.55 + 0.55 * Math.cbrt(Math.random()));
 
-                    const lx = r * Math.sin(phi) * Math.cos(theta);
-                    const ly = r * Math.cos(phi) * 0.92;
-                    const lz = r * Math.sin(phi) * Math.sin(theta);
+                const lx = r * Math.sin(phi) * Math.cos(theta);
+                const ly = r * Math.cos(phi) * 0.92;
+                const lz = r * Math.sin(phi) * Math.sin(theta);
 
-                    dummy.position.set(c.x + lx, c.y + ly, c.z + lz);
-                    dummy.rotation.set(
-                        Math.random() * Math.PI * 2,
-                        Math.random() * Math.PI * 2,
-                        Math.random() * Math.PI * 2
-                    );
-                    const s = 0.75 + Math.random() * 0.65;
-                    dummy.scale.set(s, s, s);
-                    dummy.updateMatrix();
-                    instancedLeaves.setMatrixAt(idx, dummy.matrix);
+                dummy.position.set(center.x + lx, center.y + ly, center.z + lz);
+                dummy.rotation.set(
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2
+                );
+                const s = 0.75 + Math.random() * 0.65;
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                instanced.setMatrixAt(i, dummy.matrix);
 
-                    // Shade top leaves lighter and underside leaves deep brown like reference shots
-                    const heightNorm = THREE.MathUtils.clamp((ly / c.radius + 1) * 0.5, 0, 1);
-                    if (heightNorm > 0.55) {
-                        color.copy(midColor).lerp(topColor, (heightNorm - 0.55) / 0.45);
-                    } else {
-                        color.copy(darkColor).lerp(midColor, heightNorm / 0.55);
-                    }
-                    instancedLeaves.setColorAt(idx, color);
-                    idx++;
+                // Top-lit dusty pink/cream on upper leaves, rich dark brown underneath
+                const heightFactor = THREE.MathUtils.clamp((ly / Math.max(radius, 0.001) + 0.75) / 1.5, 0, 1);
+                if (heightFactor > 0.68) {
+                    color.setHex(0xebd2c8).lerp(new THREE.Color(0xdcb4a6), Math.random() * 0.5);
+                } else if (heightFactor > 0.35) {
+                    color.setHex(0xb88b7d).lerp(new THREE.Color(0x5c362c), Math.random() * 0.6);
+                } else {
+                    color.setHex(0x331a15).lerp(new THREE.Color(0x4a261f), Math.random() * 0.5);
                 }
-            });
+                instanced.setColorAt(i, color);
+            }
 
-            instancedLeaves.instanceMatrix.needsUpdate = true;
-            if (instancedLeaves.instanceColor) instancedLeaves.instanceColor.needsUpdate = true;
-            parentGroup.add(instancedLeaves);
+            instanced.instanceMatrix.needsUpdate = true;
+            if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true;
+            parent.add(instanced);
         }
 
+        // Build the 3D Park Environment fitted strictly inside the Light-Blue Portal Cavity & Occluder Box
         function buildTargetTemplate() {
             targetTemplateMesh = new THREE.Group();
             targetTemplateMesh.name = 'park-portal-root';
 
+            // Exact 8.5" x 11" cavity opening and interior bounds
+            const cavityW = DIORAMA_WIDTH_M;
+            const cavityH = DIORAMA_DEPTH_M;
+            const cavityD = DIORAMA_DEPTH_M;
+
+            // Pivot so targetTemplateMesh's local origin (0, 0, 0) is the exact center of the front opening
+            const portalPivot = new THREE.Group();
+            portalPivot.name = 'portal-center-pivot';
+            portalPivot.position.set(0, -cavityH / 2, 0);
+            targetTemplateMesh.add(portalPivot);
+
             const parkContentGroup = new THREE.Group();
             parkContentGroup.name = 'park-diorama-content';
+            // Place the park floor flush at the bottom of the cavity (y = 0) and centered in depth (-cavityD/2)
+            parkContentGroup.position.set(0, 0.004, -cavityD / 2);
 
-            const grassW = DIORAMA_WIDTH_M;
-            const grassD = DIORAMA_DEPTH_M;
-            const grassH = 0.008;
+            const baseW = DIORAMA_WIDTH_M * 0.98;
+            const baseD = DIORAMA_DEPTH_M * 0.98;
+            const baseH = 0.008;
 
-            // 1. Rectangular Mottled Grass Base
+            // 1. Mottled Grass Base
             const grassTex = createGrassTexture();
             const grassMat = new THREE.MeshStandardMaterial({
                 map: grassTex,
                 roughness: 0.92,
-                metalness: 0.02
+                metalness: 0.0
             });
-            const grassMesh = new THREE.Mesh(new THREE.BoxGeometry(grassW, grassH, grassD), grassMat);
-            grassMesh.position.set(0, grassH / 2, 0);
-            grassMesh.receiveShadow = true;
+            const grassGeo = new THREE.BoxGeometry(baseW, baseH, baseD);
+            const grassMesh = new THREE.Mesh(grassGeo, grassMat);
+            grassMesh.position.set(0, baseH / 2, 0);
             parkContentGroup.add(grassMesh);
 
-            // Pale back-edge border strip seen in back/45-degree views
-            const trimMat = new THREE.MeshStandardMaterial({ color: 0xe8ece0, roughness: 0.85 });
-            const backTrim = new THREE.Mesh(new THREE.BoxGeometry(grassW, grassH * 1.05, 0.006), trimMat);
-            backTrim.position.set(0, grassH / 2, -grassD / 2 + 0.003);
-            parkContentGroup.add(backTrim);
+            // Pale back-edge trim seen in reference shots
+            const trimMat = new THREE.MeshStandardMaterial({ color: 0xe3e6dc, roughness: 0.85 });
+            const trimGeo = new THREE.BoxGeometry(baseW, baseH + 0.001, 0.007);
+            const trimMesh = new THREE.Mesh(trimGeo, trimMat);
+            trimMesh.position.set(0, baseH / 2, -baseD / 2 + 0.0035);
+            parkContentGroup.add(trimMesh);
 
-            // 2. Curved Off-White Pathway (sweeps from mid-left to front-center to mid-right)
-            const pathMat = new THREE.MeshStandardMaterial({
-                color: 0xe6e4dc,
-                roughness: 0.82,
-                metalness: 0.02
-            });
+            // 2. Curved Off-White Pathway (sweeping from mid-left -> front-center -> mid-right)
             const pathCurve = new THREE.CatmullRomCurve3([
-                new THREE.Vector3(-grassW * 0.48, 0, grassD * 0.02),
-                new THREE.Vector3(-grassW * 0.28, 0, grassD * 0.24),
-                new THREE.Vector3(grassW * 0.04, 0, grassD * 0.29),
-                new THREE.Vector3(grassW * 0.30, 0, grassD * 0.16),
-                new THREE.Vector3(grassW * 0.49, 0, -grassD * 0.05)
+                new THREE.Vector3(-baseW * 0.48, 0, baseD * 0.06),
+                new THREE.Vector3(-baseW * 0.28, 0, baseD * 0.25),
+                new THREE.Vector3(0.0, 0, baseD * 0.30),
+                new THREE.Vector3(baseW * 0.28, 0, baseD * 0.20),
+                new THREE.Vector3(baseW * 0.48, 0, -baseD * 0.02)
             ]);
             const pathPoints = pathCurve.getPoints(32);
-            const pathHalfW = 0.017;
+            const pathHalfW = 0.019;
             const pathShape = new THREE.Shape();
             const leftPts = [];
             const rightPts = [];
+
             for (let i = 0; i < pathPoints.length; i++) {
                 const p = pathPoints[i];
-                const tangent = pathCurve.getTangent(i / (pathPoints.length - 1));
-                const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
-                leftPts.push(new THREE.Vector2(p.x + normal.x * pathHalfW, -(p.z + normal.z * pathHalfW)));
-                rightPts.push(new THREE.Vector2(p.x - normal.x * pathHalfW, -(p.z - normal.z * pathHalfW)));
+                const t = i / (pathPoints.length - 1);
+                const tan = pathCurve.getTangent(t);
+                const perp = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+                leftPts.push(new THREE.Vector2(p.x + perp.x * pathHalfW, -(p.z + perp.z * pathHalfW)));
+                rightPts.push(new THREE.Vector2(p.x - perp.x * pathHalfW, -(p.z - perp.z * pathHalfW)));
             }
+
             pathShape.moveTo(leftPts[0].x, leftPts[0].y);
             for (let i = 1; i < leftPts.length; i++) pathShape.lineTo(leftPts[i].x, leftPts[i].y);
             for (let i = rightPts.length - 1; i >= 0; i--) pathShape.lineTo(rightPts[i].x, rightPts[i].y);
             pathShape.closePath();
 
-            const pathGeom = new THREE.ExtrudeGeometry(pathShape, { depth: 0.0025, bevelEnabled: false });
-            pathGeom.rotateX(-Math.PI / 2);
-            const pathMesh = new THREE.Mesh(pathGeom, pathMat);
-            pathMesh.position.y = grassH + 0.0005;
-            pathMesh.receiveShadow = true;
+            const pathGeo = new THREE.ExtrudeGeometry(pathShape, { depth: 0.0025, bevelEnabled: false });
+            pathGeo.rotateX(-Math.PI / 2);
+            const pathMat = new THREE.MeshStandardMaterial({ color: 0xe6e4dc, roughness: 0.82, metalness: 0.0 });
+            const pathMesh = new THREE.Mesh(pathGeo, pathMat);
+            pathMesh.position.y = baseH + 0.0005;
             parkContentGroup.add(pathMesh);
 
-            // 3. Front-Left Purple Retaining Block with Pastel Pink Top (tucked flush inside grass footprint)
-            const blockW = grassW * 0.44;
+            // 3. Front-Left Purple Retaining Block with Pastel Pink Top (fitted flush inside the base footprint)
+            const blockW = 0.072;
             const blockH = 0.024;
-            const blockD = 0.020;
-            const purpleSideMat = new THREE.MeshStandardMaterial({ color: 0x5c194e, roughness: 0.75 });
-            const pinkTopMat = new THREE.MeshStandardMaterial({ color: 0xf7cde5, roughness: 0.65 });
-            const blockMats = [purpleSideMat, purpleSideMat, pinkTopMat, purpleSideMat, purpleSideMat, purpleSideMat];
-            const purpleBlock = new THREE.Mesh(new THREE.BoxGeometry(blockW, blockH, blockD), blockMats);
-            purpleBlock.position.set(-grassW / 2 + blockW / 2 + 0.002, blockH / 2 + 0.001, grassD / 2 - blockD / 2 - 0.002);
-            purpleBlock.castShadow = true;
-            purpleBlock.receiveShadow = true;
-            parkContentGroup.add(purpleBlock);
+            const blockD = 0.018;
+            const blockSideMat = new THREE.MeshStandardMaterial({ color: 0x6b205c, roughness: 0.5 });
+            const blockTopMat = new THREE.MeshStandardMaterial({ color: 0xf7cde4, roughness: 0.4 });
+            const blockGeo = new THREE.BoxGeometry(blockW, blockH, blockD);
+            const blockMesh = new THREE.Mesh(blockGeo, [
+                blockSideMat, blockSideMat, blockTopMat, blockSideMat, blockSideMat, blockSideMat
+            ]);
+            blockMesh.position.set(-baseW * 0.5 + blockW * 0.5 + 0.003, baseH + blockH * 0.5 - 0.002, baseD * 0.5 - blockD * 0.5 - 0.003);
+            parkContentGroup.add(blockMesh);
 
             // 4. Dark Mahogany Lamp Post with Overhanging Box Head
-            const lampMat = new THREE.MeshStandardMaterial({ color: 0x3b0d0c, roughness: 0.35, metalness: 0.15 });
             const lampGroup = new THREE.Group();
-            const poleH = 0.145;
-            const poleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.011, poleH, 0.011), lampMat);
-            poleMesh.position.y = poleH / 2;
-            poleMesh.castShadow = true;
+            const lampMat = new THREE.MeshStandardMaterial({ color: 0x3b120e, roughness: 0.35, metalness: 0.15 });
+            const poleGeo = new THREE.BoxGeometry(0.009, 0.118, 0.009);
+            const poleMesh = new THREE.Mesh(poleGeo, lampMat);
+            poleMesh.position.y = 0.059;
             lampGroup.add(poleMesh);
 
-            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.016, 0.018), lampMat);
-            headMesh.position.set(-0.009, poleH - 0.004, 0);
-            headMesh.castShadow = true;
+            const headGeo = new THREE.BoxGeometry(0.024, 0.012, 0.014);
+            const headMesh = new THREE.Mesh(headGeo, lampMat);
+            headMesh.position.set(-0.007, 0.114, 0);
             lampGroup.add(headMesh);
 
-            const capMesh = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.006, 0.008), lampMat);
-            capMesh.position.set(-0.003, poleH + 0.006, 0);
+            const capGeo = new THREE.BoxGeometry(0.007, 0.005, 0.007);
+            const capMesh = new THREE.Mesh(capGeo, lampMat);
+            capMesh.position.set(-0.004, 0.122, 0);
             lampGroup.add(capMesh);
 
-            lampGroup.position.set(grassW * 0.22, grassH, grassD * 0.24);
+            lampGroup.position.set(0.044, baseH, 0.048);
             lampGroup.rotation.y = -0.45;
             parkContentGroup.add(lampGroup);
 
-            // 5. Ribbed Green Trash Can beside the Lamp Post
-            const trashMat = new THREE.MeshStandardMaterial({ color: 0x244f21, roughness: 0.55, metalness: 0.35 });
+            // 5. Ribbed Green Trash Can beside Lamp Post
             const trashGroup = new THREE.Group();
-            const canBody = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.0082, 0.022, 14), trashMat);
-            canBody.position.y = 0.011;
-            canBody.castShadow = true;
-            trashGroup.add(canBody);
+            const trashMat = new THREE.MeshStandardMaterial({ color: 0x2a5420, roughness: 0.55, metalness: 0.3 });
+            const canGeo = new THREE.CylinderGeometry(0.008, 0.0072, 0.022, 12);
+            const canMesh = new THREE.Mesh(canGeo, trashMat);
+            canMesh.position.y = 0.011;
+            trashGroup.add(canMesh);
 
-            const rim1 = new THREE.Mesh(new THREE.TorusGeometry(0.0092, 0.0012, 8, 16), trashMat);
-            rim1.rotation.x = Math.PI / 2;
-            rim1.position.y = 0.020;
-            trashGroup.add(rim1);
+            const rimGeo = new THREE.TorusGeometry(0.008, 0.0011, 6, 14);
+            rimGeo.rotateX(Math.PI / 2);
+            const rimTop = new THREE.Mesh(rimGeo, trashMat);
+            rimTop.position.y = 0.021;
+            trashGroup.add(rimTop);
 
-            const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.0088, 0.001, 8, 16), trashMat);
-            rim2.rotation.x = Math.PI / 2;
-            rim2.position.y = 0.009;
-            trashGroup.add(rim2);
+            const rimMid = new THREE.Mesh(rimGeo, trashMat);
+            rimMid.position.y = 0.012;
+            trashGroup.add(rimMid);
 
-            trashGroup.position.set(grassW * 0.14, grassH, grassD * 0.19);
+            trashGroup.position.set(0.028, baseH, 0.036);
             parkContentGroup.add(trashGroup);
 
-            // 6. Purple Disc Golf Basket Target (nestled near the trees)
+            // 6. Purple-Topped Disc Golf Basket with Chains (Primary Hit Target)
             const basketGroup = new THREE.Group();
             basketGroup.name = 'disc-golf-basket';
-            const basketPurpleMat = new THREE.MeshStandardMaterial({ color: 0x7a52d4, roughness: 0.4, metalness: 0.25 });
-            const metalMat = new THREE.MeshStandardMaterial({ color: 0xbfc7cf, roughness: 0.35, metalness: 0.8 });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x8f99a3, roughness: 0.35, metalness: 0.7 });
+            const purpleMat = new THREE.MeshStandardMaterial({ color: 0x6954d6, roughness: 0.3, metalness: 0.2 });
 
-            const bPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, 0.042, 8), metalMat);
-            bPole.position.y = 0.021;
+            const bPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0014, 0.0018, 0.036, 8), metalMat);
+            bPole.position.y = 0.018;
             basketGroup.add(bPole);
 
-            const bCage = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.009, 0.008, 12, 1, true), metalMat);
-            bCage.position.y = 0.018;
-            basketGroup.add(bCage);
+            const bBase = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.002, 12), metalMat);
+            bBase.position.y = 0.001;
+            basketGroup.add(bBase);
 
-            const bTopBand = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.0045, 14), basketPurpleMat);
-            bTopBand.position.y = 0.041;
-            bTopBand.castShadow = true;
-            basketGroup.add(bTopBand);
+            const bTray = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.0085, 0.006, 12, 1, true), metalMat);
+            bTray.position.y = 0.016;
+            basketGroup.add(bTray);
+
+            const bTop = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 0.0045, 14), purpleMat);
+            bTop.position.y = 0.034;
+            basketGroup.add(bTop);
 
             // Hanging chains
+            const chainGeo = new THREE.CylinderGeometry(0.00045, 0.00045, 0.016, 4);
             for (let i = 0; i < 8; i++) {
                 const ang = (i / 8) * Math.PI * 2;
-                const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.0005, 0.0005, 0.022, 4), metalMat);
-                chain.position.set(Math.cos(ang) * 0.007, 0.029, Math.sin(ang) * 0.007);
+                const chain = new THREE.Mesh(chainGeo, metalMat);
+                chain.position.set(Math.cos(ang) * 0.0075, 0.024, Math.sin(ang) * 0.0075);
+                chain.rotation.z = Math.cos(ang) * 0.14;
+                chain.rotation.x = -Math.sin(ang) * 0.14;
                 basketGroup.add(chain);
             }
 
-            basketGroup.position.set(-grassW * 0.16, grassH, grassD * 0.01);
+            basketGroup.position.set(-0.022, baseH, 0.016);
             parkContentGroup.add(basketGroup);
 
-            // 7. Three Olive-Green Branched Trees with Clustered Dusty-Pink Leaf-Card Canopies
-            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3f5422, roughness: 0.88, metalness: 0.02 });
+            // 7. Three Olive-Green Branched Trees with Dusty-Pink Leaf-Card Canopies (scaled to fit inside cavity)
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3b5218, roughness: 0.88, metalness: 0.0 });
+            const leafGeo = new THREE.PlaneGeometry(0.0095, 0.0075);
+            const leafMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.82,
+                metalness: 0.0,
+                side: THREE.DoubleSide
+            });
+
             const treesGroup = new THREE.Group();
+            treesGroup.position.y = baseH;
 
-            // Tree 1 (Tallest, back-left)
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.042, grassH, -0.078),
-                new THREE.Vector3(-0.044, grassH + 0.11, -0.075),
-                new THREE.Vector3(-0.046, grassH + 0.24, -0.072),
-                new THREE.Vector3(-0.042, grassH + 0.33, -0.068)
-            ], 0.015, 0.0045, trunkMat));
+            // Tall Main Tree (Back-Left)
+            addTaperedSegment(treesGroup, new THREE.Vector3(-0.044, 0, -0.068), new THREE.Vector3(-0.046, 0.105, -0.066), 0.014, 0.0085, trunkMat);
+            addTaperedSegment(treesGroup, new THREE.Vector3(-0.046, 0.105, -0.066), new THREE.Vector3(-0.042, 0.210, -0.062), 0.0085, 0.0045, trunkMat);
+            // Forked upper branch
+            addTaperedSegment(treesGroup, new THREE.Vector3(-0.045, 0.145, -0.064), new THREE.Vector3(-0.016, 0.192, -0.056), 0.006, 0.0035, trunkMat);
+            // Forward-reaching mid branch
+            addTaperedSegment(treesGroup, new THREE.Vector3(-0.045, 0.075, -0.066), new THREE.Vector3(-0.026, 0.118, -0.012), 0.0065, 0.0035, trunkMat);
 
-            // Tree 1 upper fork branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.045, grassH + 0.22, -0.073),
-                new THREE.Vector3(-0.022, grassH + 0.26, -0.060),
-                new THREE.Vector3(-0.008, grassH + 0.31, -0.052)
-            ], 0.0075, 0.003, trunkMat));
+            addLeafCluster(treesGroup, new THREE.Vector3(-0.042, 0.218, -0.062), 0.036, 220, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(-0.012, 0.200, -0.052), 0.030, 180, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(-0.026, 0.128, -0.008), 0.032, 190, leafGeo, leafMat);
 
-            // Tree 1 lower side branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(-0.043, grassH + 0.10, -0.074),
-                new THREE.Vector3(-0.018, grassH + 0.13, -0.036),
-                new THREE.Vector3(-0.004, grassH + 0.165, -0.012)
-            ], 0.0085, 0.0035, trunkMat));
+            // Medium Tree (Back-Center / Right)
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.006, 0, -0.052), new THREE.Vector3(0.008, 0.098, -0.046), 0.011, 0.0065, trunkMat);
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.008, 0.062, -0.048), new THREE.Vector3(0.044, 0.108, -0.032), 0.0055, 0.003, trunkMat);
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.008, 0.078, -0.046), new THREE.Vector3(-0.012, 0.128, -0.036), 0.005, 0.0028, trunkMat);
 
-            // Tree 2 (Medium, center-right)
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.012, grassH, -0.048),
-                new THREE.Vector3(0.014, grassH + 0.09, -0.046),
-                new THREE.Vector3(0.016, grassH + 0.19, -0.044)
-            ], 0.0125, 0.004, trunkMat));
+            addLeafCluster(treesGroup, new THREE.Vector3(0.010, 0.118, -0.042), 0.032, 190, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(0.046, 0.118, -0.028), 0.033, 200, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(-0.014, 0.138, -0.034), 0.026, 140, leafGeo, leafMat);
 
-            // Tree 2 right branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.014, grassH + 0.11, -0.046),
-                new THREE.Vector3(0.038, grassH + 0.145, -0.030),
-                new THREE.Vector3(0.050, grassH + 0.175, -0.022)
-            ], 0.006, 0.0025, trunkMat));
+            // Small Sapling Tree (Back-Right)
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.052, 0, -0.062), new THREE.Vector3(0.052, 0.090, -0.060), 0.0038, 0.002, trunkMat);
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.052, 0.046, -0.061), new THREE.Vector3(0.068, 0.066, -0.056), 0.002, 0.0012, trunkMat);
+            addTaperedSegment(treesGroup, new THREE.Vector3(0.052, 0.056, -0.061), new THREE.Vector3(0.036, 0.072, -0.052), 0.002, 0.0012, trunkMat);
 
-            // Tree 2 front-left branch
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.013, grassH + 0.095, -0.045),
-                new THREE.Vector3(-0.015, grassH + 0.125, -0.018),
-                new THREE.Vector3(-0.036, grassH + 0.15, 0.004)
-            ], 0.006, 0.0025, trunkMat));
+            addLeafCluster(treesGroup, new THREE.Vector3(0.052, 0.098, -0.060), 0.018, 95, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(0.070, 0.070, -0.055), 0.011, 55, leafGeo, leafMat);
+            addLeafCluster(treesGroup, new THREE.Vector3(0.034, 0.076, -0.050), 0.012, 60, leafGeo, leafMat);
 
-            // Tree 3 (Slender sapling, back-right)
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.056, grassH, -0.068),
-                new THREE.Vector3(0.057, grassH + 0.075, -0.066),
-                new THREE.Vector3(0.058, grassH + 0.155, -0.064)
-            ], 0.0042, 0.0018, trunkMat));
-
-            treesGroup.add(createBranchTube([
-                new THREE.Vector3(0.057, grassH + 0.068, -0.066),
-                new THREE.Vector3(0.074, grassH + 0.095, -0.058)
-            ], 0.0022, 0.001, trunkMat));
-
-            // Leaf-Card Canopy Clusters
-            const canopyClusters = [
-                { x: -0.042, y: grassH + 0.345, z: -0.068, radius: 0.046, count: 165 },
-                { x: -0.006, y: grassH + 0.315, z: -0.050, radius: 0.040, count: 140 },
-                { x: -0.024, y: grassH + 0.285, z: -0.058, radius: 0.034, count: 100 },
-                { x: 0.018, y: grassH + 0.210, z: -0.044, radius: 0.042, count: 145 },
-                { x: 0.052, y: grassH + 0.185, z: -0.022, radius: 0.038, count: 130 },
-                { x: -0.038, y: grassH + 0.165, z: 0.005, radius: 0.038, count: 130 },
-                { x: -0.004, y: grassH + 0.175, z: -0.010, radius: 0.032, count: 95 },
-                { x: 0.058, y: grassH + 0.160, z: -0.064, radius: 0.022, count: 65 },
-                { x: 0.075, y: grassH + 0.098, z: -0.057, radius: 0.012, count: 35 }
-            ];
-            addLeafCluster(treesGroup, canopyClusters);
-            // Scale tree height cleanly so the tallest canopy fits comfortably beneath the cavity ceiling
-            treesGroup.scale.set(1, 0.62, 1);
-            treesGroup.position.y = grassH * (1 - 0.62);
             parkContentGroup.add(treesGroup);
 
-            // Fit the 3D park base 1:1 inside the cavity floor (exact same width and depth)
-            const portalW = DIORAMA_WIDTH_M;
-            const portalH = DIORAMA_DEPTH_M;
-            const chamberW = DIORAMA_WIDTH_M;
-            const chamberH = DIORAMA_DEPTH_M;
-            const chamberDepth = DIORAMA_DEPTH_M;
-            const chamberMinY = 0;
-            const chamberMaxY = chamberH;
-            const centerY = portalH / 2;
-            const chamberCenterY = chamberH / 2;
-
-            parkContentGroup.scale.set(1, 1, 1);
-            parkContentGroup.position.set(0, 0.002, -chamberDepth / 2);
+            // Render park content after the occluder and interior cavity
             parkContentGroup.traverse((child) => {
                 if (child.isMesh) {
                     child.renderOrder = 1;
                 }
             });
-            targetTemplateMesh.add(parkContentGroup);
+            portalPivot.add(parkContentGroup);
 
             // 8. Recessed Light-Blue Portal Cavity & Invisible Depth-Occluder Box (exact 3D environment bounds)
-
-            // --- A. Invisible Outer Depth-Occluder Shell (renderOrder = -2) ---
+            // --- A. Invisible Outer Depth-Occluder Box & Front Mask Flange (renderOrder = -2) ---
             const occluderMat = new THREE.MeshBasicMaterial({
+                color: 0x000000,
                 colorWrite: false,
                 depthWrite: true,
+                depthTest: true,
                 side: THREE.FrontSide
             });
 
             const occluderGroup = new THREE.Group();
-            occluderGroup.name = 'occluder-box-group';
+            occluderGroup.name = 'portal-occluder-box';
 
-            const backWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), occluderMat);
-            backWall.rotation.y = Math.PI;
-            backWall.position.set(0, chamberCenterY, -chamberDepth);
-            occluderGroup.add(backWall);
+            const pad = 0.004;
+            const outerW = cavityW + pad * 2;
+            const outerH = cavityH + pad * 2;
+            const outerD = cavityD + pad;
 
-            const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), occluderMat);
-            leftWall.rotation.y = -Math.PI / 2;
-            leftWall.position.set(-chamberW / 2, chamberCenterY, -chamberDepth / 2);
-            occluderGroup.add(leftWall);
+            // Left exterior occluder wall
+            const occLeft = new THREE.Mesh(new THREE.PlaneGeometry(outerD, outerH), occluderMat);
+            occLeft.position.set(-outerW / 2, cavityH / 2, -outerD / 2);
+            occLeft.rotation.y = -Math.PI / 2;
+            occluderGroup.add(occLeft);
 
-            const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), occluderMat);
-            rightWall.rotation.y = Math.PI / 2;
-            rightWall.position.set(chamberW / 2, chamberCenterY, -chamberDepth / 2);
-            occluderGroup.add(rightWall);
+            // Right exterior occluder wall
+            const occRight = new THREE.Mesh(new THREE.PlaneGeometry(outerD, outerH), occluderMat);
+            occRight.position.set(outerW / 2, cavityH / 2, -outerD / 2);
+            occRight.rotation.y = Math.PI / 2;
+            occluderGroup.add(occRight);
 
-            const topWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), occluderMat);
-            topWall.rotation.x = -Math.PI / 2;
-            topWall.position.set(0, chamberMaxY, -chamberDepth / 2);
-            occluderGroup.add(topWall);
+            // Top exterior occluder wall
+            const occTop = new THREE.Mesh(new THREE.PlaneGeometry(outerW, outerD), occluderMat);
+            occTop.position.set(0, cavityH + pad, -outerD / 2);
+            occTop.rotation.x = -Math.PI / 2;
+            occluderGroup.add(occTop);
 
-            const bottomWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), occluderMat);
-            bottomWall.rotation.x = Math.PI / 2;
-            bottomWall.position.set(0, chamberMinY, -chamberDepth / 2);
-            occluderGroup.add(bottomWall);
+            // Bottom exterior occluder wall
+            const occBottom = new THREE.Mesh(new THREE.PlaneGeometry(outerW, outerD), occluderMat);
+            occBottom.position.set(0, -pad, -outerD / 2);
+            occBottom.rotation.x = Math.PI / 2;
+            occluderGroup.add(occBottom);
 
-            // Front Mask Flange on z = 0 with the 8.5" x 11" opening cutout
-            const outerExtent = 2.0;
-            const halfPW = portalW / 2;
-            const minPY = 0;
-            const maxPY = portalH;
+            // Back exterior occluder wall
+            const occBack = new THREE.Mesh(new THREE.PlaneGeometry(outerW, outerH), occluderMat);
+            occBack.position.set(0, cavityH / 2, -outerD);
+            occBack.rotation.y = Math.PI;
+            occluderGroup.add(occBack);
 
+            // Front Mask Flange at z = 0 with rectangular opening cutout
+            const flangeOuterW = cavityW * 5.0;
+            const flangeOuterH = cavityH * 5.0;
             const flangeShape = new THREE.Shape();
-            flangeShape.moveTo(-outerExtent, centerY - outerExtent);
-            flangeShape.lineTo(outerExtent, centerY - outerExtent);
-            flangeShape.lineTo(outerExtent, centerY + outerExtent);
-            flangeShape.lineTo(-outerExtent, centerY + outerExtent);
+            flangeShape.moveTo(-flangeOuterW / 2, -flangeOuterH / 2);
+            flangeShape.lineTo(flangeOuterW / 2, -flangeOuterH / 2);
+            flangeShape.lineTo(flangeOuterW / 2, flangeOuterH / 2);
+            flangeShape.lineTo(-flangeOuterW / 2, flangeOuterH / 2);
             flangeShape.closePath();
 
             const openingHole = new THREE.Path();
-            openingHole.moveTo(-halfPW, minPY);
-            openingHole.lineTo(-halfPW, maxPY);
-            openingHole.lineTo(halfPW, maxPY);
-            openingHole.lineTo(halfPW, minPY);
+            openingHole.moveTo(-cavityW / 2, 0);
+            openingHole.lineTo(cavityW / 2, 0);
+            openingHole.lineTo(cavityW / 2, cavityH);
+            openingHole.lineTo(-cavityW / 2, cavityH);
             openingHole.closePath();
             flangeShape.holes.push(openingHole);
 
-            const frontMaskFlange = new THREE.Mesh(new THREE.ShapeGeometry(flangeShape), occluderMat);
-            frontMaskFlange.position.set(0, 0, 0);
-            occluderGroup.add(frontMaskFlange);
+            const flangeMesh = new THREE.Mesh(new THREE.ShapeGeometry(flangeShape), occluderMat);
+            flangeMesh.position.set(0, 0, 0);
+            occluderGroup.add(flangeMesh);
 
             occluderGroup.traverse((child) => {
                 if (child.isMesh) {
                     child.renderOrder = -2;
                 }
             });
-            targetTemplateMesh.add(occluderGroup);
+            portalPivot.add(occluderGroup);
 
             // --- B. Recessed Light-Blue Interior Portal Cavity & Dark Entrance Collar (renderOrder = 0) ---
             const cavityGroup = new THREE.Group();
-            cavityGroup.name = 'portal-cavity-group';
+            cavityGroup.name = 'portal-interior-cavity';
 
-            const innerWallMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, roughness: 0.85, side: THREE.FrontSide });
-            const innerCeilingMat = new THREE.MeshStandardMaterial({ color: 0xc2e6f5, roughness: 0.85, side: THREE.FrontSide });
-            const innerFloorMat = new THREE.MeshStandardMaterial({ color: 0x96cbe0, roughness: 0.9, side: THREE.FrontSide });
-            const rimShadowMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9, side: THREE.FrontSide });
+            const wallMat = new THREE.MeshStandardMaterial({
+                color: 0xadd8e6,
+                roughness: 0.9,
+                metalness: 0.0,
+                side: THREE.FrontSide
+            });
+            const ceilMat = new THREE.MeshStandardMaterial({
+                color: 0xc2e6f5,
+                roughness: 0.9,
+                metalness: 0.0,
+                side: THREE.FrontSide
+            });
+            const floorMat = new THREE.MeshStandardMaterial({
+                color: 0x96cbe0,
+                roughness: 0.95,
+                metalness: 0.0,
+                side: THREE.FrontSide
+            });
 
-            const innerBack = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), innerWallMat);
-            innerBack.position.set(0, chamberCenterY, -chamberDepth + 0.002);
-            cavityGroup.add(innerBack);
+            // Back interior wall
+            const cavBack = new THREE.Mesh(new THREE.PlaneGeometry(cavityW, cavityH), wallMat);
+            cavBack.position.set(0, cavityH / 2, -cavityD);
+            cavityGroup.add(cavBack);
 
-            const innerLeft = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), innerWallMat);
-            innerLeft.rotation.y = Math.PI / 2;
-            innerLeft.position.set(-chamberW / 2 + 0.002, chamberCenterY, -chamberDepth / 2);
-            cavityGroup.add(innerLeft);
+            // Left interior wall
+            const cavLeft = new THREE.Mesh(new THREE.PlaneGeometry(cavityD, cavityH), wallMat);
+            cavLeft.position.set(-cavityW / 2, cavityH / 2, -cavityD / 2);
+            cavLeft.rotation.y = Math.PI / 2;
+            cavityGroup.add(cavLeft);
 
-            const innerRight = new THREE.Mesh(new THREE.PlaneGeometry(chamberDepth, chamberH), innerWallMat);
-            innerRight.rotation.y = -Math.PI / 2;
-            innerRight.position.set(chamberW / 2 - 0.002, chamberCenterY, -chamberDepth / 2);
-            cavityGroup.add(innerRight);
+            // Right interior wall
+            const cavRight = new THREE.Mesh(new THREE.PlaneGeometry(cavityD, cavityH), wallMat);
+            cavRight.position.set(cavityW / 2, cavityH / 2, -cavityD / 2);
+            cavRight.rotation.y = -Math.PI / 2;
+            cavityGroup.add(cavRight);
 
-            const innerTop = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), innerCeilingMat);
-            innerTop.rotation.x = Math.PI / 2;
-            innerTop.position.set(0, chamberMaxY - 0.002, -chamberDepth / 2);
-            cavityGroup.add(innerTop);
+            // Ceiling interior wall
+            const cavTop = new THREE.Mesh(new THREE.PlaneGeometry(cavityW, cavityD), ceilMat);
+            cavTop.position.set(0, cavityH, -cavityD / 2);
+            cavTop.rotation.x = Math.PI / 2;
+            cavityGroup.add(cavTop);
 
-            const innerBottom = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberDepth), innerFloorMat);
-            innerBottom.rotation.x = -Math.PI / 2;
-            innerBottom.position.set(0, chamberMinY + 0.002, -chamberDepth / 2);
-            cavityGroup.add(innerBottom);
+            // Floor interior wall
+            const cavBottom = new THREE.Mesh(new THREE.PlaneGeometry(cavityW, cavityD), floorMat);
+            cavBottom.position.set(0, 0, -cavityD / 2);
+            cavBottom.rotation.x = -Math.PI / 2;
+            cavityGroup.add(cavBottom);
 
-            // Recessed 1.4cm dark entrance collar inside z = 0 opening
-            const collarDepth = 0.014;
-            const collarLeft = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
-            collarLeft.rotation.y = Math.PI / 2;
-            collarLeft.position.set(-halfPW + 0.001, centerY, -collarDepth / 2);
-            cavityGroup.add(collarLeft);
+            // Shadowed Entrance Collar inside the z = 0 aperture for crisp depth cue
+            const collarDepth = 0.022;
+            const collarMat = new THREE.MeshStandardMaterial({
+                color: 0x1e2a36,
+                roughness: 0.85,
+                metalness: 0.05,
+                side: THREE.FrontSide
+            });
 
-            const collarRight = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
-            collarRight.rotation.y = -Math.PI / 2;
-            collarRight.position.set(halfPW - 0.001, centerY, -collarDepth / 2);
-            cavityGroup.add(collarRight);
+            const colLeft = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, cavityH), collarMat);
+            colLeft.position.set(-cavityW / 2 + 0.0005, cavityH / 2, -collarDepth / 2);
+            colLeft.rotation.y = Math.PI / 2;
+            cavityGroup.add(colLeft);
 
-            const collarTop = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
-            collarTop.rotation.x = Math.PI / 2;
-            collarTop.position.set(0, maxPY - 0.001, -collarDepth / 2);
-            cavityGroup.add(collarTop);
+            const colRight = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, cavityH), collarMat);
+            colRight.position.set(cavityW / 2 - 0.0005, cavityH / 2, -collarDepth / 2);
+            colRight.rotation.y = -Math.PI / 2;
+            cavityGroup.add(colRight);
 
-            const collarBottom = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
-            collarBottom.rotation.x = -Math.PI / 2;
-            collarBottom.position.set(0, minPY + 0.001, -collarDepth / 2);
-            cavityGroup.add(collarBottom);
+            const colTop = new THREE.Mesh(new THREE.PlaneGeometry(cavityW, collarDepth), collarMat);
+            colTop.position.set(0, cavityH - 0.0005, -collarDepth / 2);
+            colTop.rotation.x = Math.PI / 2;
+            cavityGroup.add(colTop);
+
+            const colBottom = new THREE.Mesh(new THREE.PlaneGeometry(cavityW, collarDepth), collarMat);
+            colBottom.position.set(0, 0.0005, -collarDepth / 2);
+            colBottom.rotation.x = -Math.PI / 2;
+            cavityGroup.add(colBottom);
 
             cavityGroup.traverse((child) => {
                 if (child.isMesh) {
                     child.renderOrder = 0;
                 }
             });
-            targetTemplateMesh.add(cavityGroup);
+            portalPivot.add(cavityGroup);
         }
 
+        // Build Glossy 3D Frisbee (Blender-style LatheGeometry)
         function buildFrisbeeMesh() {
-            // Blender-style LatheGeometry glossy 3D frisbee
-            const points = [
+            const pts = [
                 new THREE.Vector2(0.0, 0.011),
-                new THREE.Vector2(0.025, 0.0105),
-                new THREE.Vector2(0.055, 0.008),
-                new THREE.Vector2(0.072, 0.003),
-                new THREE.Vector2(0.078, -0.006),
-                new THREE.Vector2(0.074, -0.010),
+                new THREE.Vector2(0.028, 0.0108),
+                new THREE.Vector2(0.056, 0.0095),
+                new THREE.Vector2(0.072, 0.0055),
+                new THREE.Vector2(0.078, 0.000),
+                new THREE.Vector2(0.076, -0.007),
                 new THREE.Vector2(0.068, -0.007),
-                new THREE.Vector2(0.062, 0.002),
-                new THREE.Vector2(0.030, 0.005),
+                new THREE.Vector2(0.066, 0.002),
+                new THREE.Vector2(0.052, 0.005),
                 new THREE.Vector2(0.0, 0.006)
             ];
-            const geom = new THREE.LatheGeometry(points, 32);
+            const geo = new THREE.LatheGeometry(pts, 32);
             const mat = new THREE.MeshStandardMaterial({
-                color: 0xff3b5c,
-                roughness: 0.22,
+                color: 0xff3366,
+                roughness: 0.18,
                 metalness: 0.15
             });
-            frisbeeMesh = new THREE.Mesh(geom, mat);
-            frisbeeMesh.castShadow = true;
+            frisbeeMesh = new THREE.Mesh(geo, mat);
             frisbeeMesh.visible = false;
             frisbeeMesh.renderOrder = 2;
             scene.add(frisbeeMesh);
         }
 
-        // Measure the apparent radius of the dark circular scannable reticle in the live camera feed
-        function measureReticleRadiusAt(normX, normY) {
+        // Start Live Rear Camera Feed
+        async function startCameraFeed() {
             const video = document.getElementById('camera-feed');
-            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+            if (!video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
-            if (!trackCanvas) {
-                trackCanvas = document.createElement('canvas');
-                trackCanvas.width = 128;
-                trackCanvas.height = 96;
-                trackCtx = trackCanvas.getContext('2d', { willReadFrequently: true });
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play().catch(() => {});
+            } catch (err) {
+                console.warn('Rear camera unavailable, trying fallback camera:', err);
+                try {
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    video.srcObject = fallbackStream;
+                    await video.play().catch(() => {});
+                } catch (fallbackErr) {
+                    console.warn('Camera permission denied or unavailable:', fallbackErr);
+                }
             }
+        }
 
-            const w = trackCanvas.width;
-            const h = trackCanvas.height;
-            trackCtx.drawImage(video, 0, 0, w, h);
+        // Initialize Three.js Scene, Camera, Lighting, and Visual-Inertial Controls
+        function initThreeJS() {
+            const container = document.getElementById('three-container');
 
-            const cx = Math.round(THREE.MathUtils.clamp(normX, 0.1, 0.9) * w);
-            const cy = Math.round(THREE.MathUtils.clamp(normY, 0.1, 0.9) * h);
-            const searchR = Math.round(Math.min(w, h) * 0.34);
+            scene = new THREE.Scene();
+            scene.background = null; // Transparent so live camera feed shows cleanly
 
-            const x0 = Math.max(0, cx - searchR);
-            const y0 = Math.max(0, cy - searchR);
-            const x1 = Math.min(w - 1, cx + searchR);
-            const y1 = Math.min(h - 1, cy + searchR);
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.05, 50);
+            camera.position.set(0, 0, 0);
+            camera.rotation.order = 'YXZ';
 
-            const imgData = trackCtx.getImageData(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
-            const data = imgData.data;
-            const boxW = x1 - x0 + 1;
-            const boxH = y1 - y0 + 1;
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            container.appendChild(renderer.domElement);
 
-            // Compute local luminance mean and min to adapt to mobile lighting
-            let lumSum = 0;
-            let lumMin = 255;
-            const totalPx = boxW * boxH;
-            for (let i = 0; i < data.length; i += 4) {
-                const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                lumSum += lum;
-                if (lum < lumMin) lumMin = lum;
-            }
-            const lumMean = lumSum / totalPx;
-            const darkThreshold = lumMin + (lumMean - lumMin) * 0.42;
+            // Lighting tuned for crisp diorama shading
+            const hemiLight = new THREE.HemisphereLight(0xfffdf5, 0x3b4d2b, 0.95);
+            scene.add(hemiLight);
 
-            // Only accept if there is enough contrast (dark circle against lighter ring/background)
-            if (lumMean - lumMin < 28) return null;
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.15);
+            dirLight.position.set(1.5, 3.0, 2.0);
+            scene.add(dirLight);
 
-            let darkCount = 0;
-            for (let i = 0; i < data.length; i += 4) {
-                const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                if (lum <= darkThreshold) {
-                    darkCount++;
+            const fillLight = new THREE.DirectionalLight(0xd9ecff, 0.45);
+            fillLight.position.set(-1.5, 1.2, 1.0);
+            scene.add(fillLight);
+
+            // Visual-Inertial Tracking (3DOF Gyroscope/Accelerometer)
+            if (typeof THREE.DeviceOrientationControls === 'function') {
+                try {
+                    controls = new THREE.DeviceOrientationControls(camera);
+                } catch (err) {
+                    console.warn('DeviceOrientationControls could not initialize:', err);
+                    controls = null;
                 }
             }
 
-            if (darkCount < 18 || darkCount > totalPx * 0.78) return null;
-            return Math.sqrt(darkCount / Math.PI);
+            buildTargetTemplate();
+            buildFrisbeeMesh();
+
+            window.addEventListener('resize', () => {
+                if (!camera || !renderer) return;
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            lastTime = performance.now();
+            requestAnimationFrame(animate);
         }
 
-        function updateProximityFromCameraFeed(now) {
-            if (!currentTarget || !anchorWorldCenter || !referenceReticleRadius) return;
-            if (now - lastTrackTime < 66) return; // ~15Hz lightweight tracking
-            lastTrackTime = now;
+        // Detect the exact 2D center (normX, normY) and apparent radius of the dark circular reticle
+        // using an offscreen canvas cropped to match the video's CSS object-fit: cover viewport
+        function detectReticleInFrame(searchNormX, searchNormY, searchRadiusNorm) {
+            const video = document.getElementById('camera-feed');
+            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
 
-            // Project the anchored reticle center into normalized screen coordinates
-            const projected = anchorWorldCenter.clone().project(camera);
-            if (projected.z > 1 || Math.abs(projected.x) > 0.85 || Math.abs(projected.y) > 0.85) {
-                return; // Reticle is outside the camera view; hold fixed world position
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            const viewW = window.innerWidth || 1;
+            const viewH = window.innerHeight || 1;
+            const viewAspect = viewW / viewH;
+            const videoAspect = vw / vh;
+
+            // Match offscreen canvas aspect ratio to the visible viewport
+            const maxDim = 160;
+            const tw = viewAspect >= 1 ? maxDim : Math.max(48, Math.round(maxDim * viewAspect));
+            const th = viewAspect >= 1 ? Math.max(48, Math.round(maxDim / viewAspect)) : maxDim;
+
+            if (!trackCanvas) {
+                trackCanvas = document.createElement('canvas');
+                trackCtx = trackCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (trackCanvas.width !== tw || trackCanvas.height !== th) {
+                trackCanvas.width = tw;
+                trackCanvas.height = th;
             }
 
-            const normX = (projected.x + 1) * 0.5;
-            const normY = (1 - projected.y) * 0.5;
-            const detectedRadius = measureReticleRadiusAt(normX, normY);
-            if (!detectedRadius) return;
+            // Compute exact source crop matching CSS object-fit: cover
+            let sx = 0, sy = 0, sWidth = vw, sHeight = vh;
+            if (videoAspect > viewAspect) {
+                sHeight = vh;
+                sWidth = vh * viewAspect;
+                sx = (vw - sWidth) * 0.5;
+            } else {
+                sWidth = vw;
+                sHeight = vw / viewAspect;
+                sy = (vh - sHeight) * 0.5;
+            }
 
-            // Pinhole scale law: closer reticle = larger radius = smaller camera distance
-            const estimatedDist = INITIAL_ANCHOR_DIST * (referenceReticleRadius / detectedRadius);
-            targetCameraDist = THREE.MathUtils.clamp(estimatedDist, 0.30, 2.20);
+            trackCtx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, tw, th);
+            const fullData = trackCtx.getImageData(0, 0, tw, th).data;
+
+            const minDim = Math.min(tw, th);
+            const predX = THREE.MathUtils.clamp(searchNormX, 0.05, 0.95) * tw;
+            const predY = THREE.MathUtils.clamp(searchNormY, 0.05, 0.95) * th;
+            const searchR = Math.max(14, Math.round(minDim * searchRadiusNorm));
+
+            const x0 = Math.max(0, Math.floor(predX - searchR));
+            const y0 = Math.max(0, Math.floor(predY - searchR));
+            const x1 = Math.min(tw - 1, Math.ceil(predX + searchR));
+            const y1 = Math.min(th - 1, Math.ceil(predY + searchR));
+
+            // Pass 1: Local luminance statistics inside circular search region
+            let lumMin = 255, lumMax = 0, lumSum = 0, pxCount = 0;
+            const searchR2 = searchR * searchR;
+            for (let y = y0; y <= y1; y++) {
+                const dy = y - predY;
+                for (let x = x0; x <= x1; x++) {
+                    const dx = x - predX;
+                    if (dx * dx + dy * dy > searchR2) continue;
+                    const i = (y * tw + x) * 4;
+                    const lum = 0.299 * fullData[i] + 0.587 * fullData[i + 1] + 0.114 * fullData[i + 2];
+                    if (lum < lumMin) lumMin = lum;
+                    if (lum > lumMax) lumMax = lum;
+                    lumSum += lum;
+                    pxCount++;
+                }
+            }
+            if (pxCount < 20 || (lumMax - lumMin) < 42) return null;
+
+            const lumMean = lumSum / pxCount;
+            const darkThresh = lumMin + (lumMean - lumMin) * 0.45;
+
+            // Weighted centroid of dark core pixels
+            let sumX = 0, sumY = 0, sumW = 0, darkCount = 0;
+            for (let y = y0; y <= y1; y++) {
+                const dy = y - predY;
+                for (let x = x0; x <= x1; x++) {
+                    const dx = x - predX;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 > searchR2) continue;
+                    const i = (y * tw + x) * 4;
+                    const lum = 0.299 * fullData[i] + 0.587 * fullData[i + 1] + 0.114 * fullData[i + 2];
+                    if (lum <= darkThresh) {
+                        const darkness = (darkThresh - lum) + 1;
+                        const spatialWeight = 1 / (1 + d2 / (searchR2 * 0.65));
+                        const w = darkness * spatialWeight;
+                        sumX += x * w;
+                        sumY += y * w;
+                        sumW += w;
+                        darkCount++;
+                    }
+                }
+            }
+            if (darkCount < 14 || sumW <= 0) return null;
+
+            const cx1 = sumX / sumW;
+            const cy1 = sumY / sumW;
+            // Divide by ~0.72 to account for the light-gray M & play icon inside the black circle
+            const r1 = Math.sqrt((darkCount / 0.72) / Math.PI);
+            if (r1 < 3.5 || r1 > minDim * 0.48) return null;
+
+            // Pass 2: Unbiased refinement around (cx1, cy1) + bright-halo contrast verification
+            const innerR = Math.max(4, r1 * 1.18);
+            const outerR = Math.min(minDim * 0.5, r1 * 1.62);
+            const innerR2 = innerR * innerR;
+            const outerR2 = outerR * outerR;
+            const rx0 = Math.max(0, Math.floor(cx1 - outerR));
+            const ry0 = Math.max(0, Math.floor(cy1 - outerR));
+            const rx1 = Math.min(tw - 1, Math.ceil(cx1 + outerR));
+            const ry1 = Math.min(th - 1, Math.ceil(cy1 + outerR));
+
+            let refX = 0, refY = 0, refCount = 0;
+            let coreLumSum = 0, coreCount = 0;
+            let ringLumSum = 0, ringCount = 0;
+
+            for (let y = ry0; y <= ry1; y++) {
+                const dy = y - cy1;
+                for (let x = rx0; x <= rx1; x++) {
+                    const dx = x - cx1;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 > outerR2) continue;
+                    const i = (y * tw + x) * 4;
+                    const lum = 0.299 * fullData[i] + 0.587 * fullData[i + 1] + 0.114 * fullData[i + 2];
+                    if (d2 <= innerR2) {
+                        coreLumSum += lum;
+                        coreCount++;
+                        if (lum <= darkThresh) {
+                            refX += x;
+                            refY += y;
+                            refCount++;
+                        }
+                    } else {
+                        ringLumSum += lum;
+                        ringCount++;
+                    }
+                }
+            }
+
+            if (refCount < 12 || ringCount < 10) return null;
+            const coreMean = coreLumSum / coreCount;
+            const ringMean = ringLumSum / ringCount;
+            if (ringMean - coreMean < 22) return null;
+
+            const cx2 = refX / refCount;
+            const cy2 = refY / refCount;
+            const r2 = Math.sqrt((refCount / 0.72) / Math.PI);
+
+            return {
+                normX: cx2 / tw,
+                normY: cy2 / th,
+                radiusNorm: r2 / minDim
+            };
+        }
+
+        // Continuously lock the 3D environment & occluder box center to the detected reticle in screen space
+        function updateReticleAnchor(now) {
+            if (!currentTarget) return;
+            if (now - lastTrackTime < 33) return; // ~30Hz responsive visual tracking
+            lastTrackTime = now;
+
+            // Predict where the currently anchored reticle should appear on screen
+            const projected = currentTarget.position.clone().project(camera);
+            let searchX = 0.5;
+            let searchY = 0.5;
+            let searchRadius = 0.34;
+
+            if (projected.z < 1 && Math.abs(projected.x) <= 1.05 && Math.abs(projected.y) <= 1.05) {
+                searchX = (projected.x + 1) * 0.5;
+                searchY = (1 - projected.y) * 0.5;
+                searchRadius = lostTrackFrames > 6 ? 0.38 : 0.24;
+            } else {
+                lostTrackFrames++;
+                return;
+            }
+
+            const det = detectReticleInFrame(searchX, searchY, searchRadius);
+            if (!det) {
+                lostTrackFrames++;
+                return;
+            }
+
+            lostTrackFrames = 0;
+
+            if (!referenceReticleRadius) {
+                referenceReticleRadius = det.radiusNorm;
+            }
+
+            // Pinhole scale law: apparent reticle size controls depth distance along the camera ray
+            const estimatedDist = INITIAL_ANCHOR_DIST * (referenceReticleRadius / det.radiusNorm);
+            targetAnchorDist = THREE.MathUtils.clamp(estimatedDist, 0.28, 2.40);
+            currentAnchorDist = THREE.MathUtils.lerp(currentAnchorDist, targetAnchorDist, 0.22);
+
+            // Unproject detected reticle center (normX, normY) into 3D world space along the current camera ray
+            trackNdc.set(det.normX * 2 - 1, 1 - det.normY * 2);
+            trackRaycaster.setFromCamera(trackNdc, camera);
+            const desiredWorldPos = trackRaycaster.ray.origin
+                .clone()
+                .addScaledVector(trackRaycaster.ray.direction, currentAnchorDist);
+
+            // Anchor the 3D environment & occluder box center to the reticle while keeping world orientation fixed
+            currentTarget.position.lerp(desiredWorldPos, 0.65);
+            currentTarget.quaternion.copy(anchorQuaternion);
         }
 
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const scanPos = camera.position.clone().addScaledVector(forward, INITIAL_ANCHOR_DIST);
-            scanPos.y -= DIORAMA_DEPTH_M / 2; // Center the 8.5" x 11" front opening on the reticle
+            camera.updateMatrixWorld();
+
+            const initialDet = detectReticleInFrame(0.5, 0.5, 0.35);
+            const spawnNormX = initialDet ? initialDet.normX : 0.5;
+            const spawnNormY = initialDet ? initialDet.normY : 0.5;
+            referenceReticleRadius = initialDet ? initialDet.radiusNorm : null;
+
+            trackNdc.set(spawnNormX * 2 - 1, 1 - spawnNormY * 2);
+            trackRaycaster.setFromCamera(trackNdc, camera);
+            const scanPos = trackRaycaster.ray.origin
+                .clone()
+                .addScaledVector(trackRaycaster.ray.direction, INITIAL_ANCHOR_DIST);
 
             const targetClone = targetTemplateMesh.clone();
             targetClone.position.copy(scanPos);
 
+            // Face the camera upright on the vertical wall plane and lock that world orientation
             const toCamX = camera.position.x - scanPos.x;
             const toCamZ = camera.position.z - scanPos.z;
             targetClone.rotation.set(0, Math.atan2(toCamX, toCamZ), 0);
+            anchorQuaternion.copy(targetClone.quaternion);
 
             targetClone.userData.hitsRemaining = 3;
-
-            // Lock world-space anchor and capture reference reticle size for proximity tracking
-            anchorWorldCenter = scanPos.clone();
-            anchorWorldCenter.y += DIORAMA_DEPTH_M / 2;
-            anchorNormal.set(toCamX, 0, toCamZ).normalize();
-            currentCameraDist = INITIAL_ANCHOR_DIST;
-            targetCameraDist = INITIAL_ANCHOR_DIST;
-            referenceReticleRadius = measureReticleRadiusAt(0.5, 0.5);
+            currentAnchorDist = INITIAL_ANCHOR_DIST;
+            targetAnchorDist = INITIAL_ANCHOR_DIST;
 
             scene.add(targetClone);
             activeTargets.push(targetClone);
             currentTarget = targetClone;
         }
 
+        function startScanningForReticle() {
+            isScanningMarker = true;
+            const scannerUi = document.getElementById('scanner-ui');
+            if (scannerUi) scannerUi.style.display = 'flex';
+
+            clearTimeout(scanTimeoutId);
+            scanTimeoutId = setTimeout(() => {
+                completeReticleScan();
+            }, 2200);
+        }
+
+        function completeReticleScan() {
+            if (!isScanningMarker) return;
+            isScanningMarker = false;
+            clearTimeout(scanTimeoutId);
+
+            const scannerUi = document.getElementById('scanner-ui');
+            if (scannerUi) scannerUi.style.display = 'none';
+
+            spawnTargetOnReticle();
+            randomizeTargetLine();
+
+            const topBanner = document.getElementById('top-banner');
+            const bottomSlider = document.getElementById('bottom-slider');
+            if (topBanner) topBanner.style.opacity = '1';
+            if (bottomSlider) bottomSlider.style.opacity = '1';
+
+            isGameActive = true;
+        }
+
         function randomizeTargetLine() {
-            targetPower = 20 + Math.random() * 60; // Between 20% and 80%
+            targetPower = Math.floor(20 + Math.random() * 60);
             const targetLine = document.getElementById('target-line');
             if (targetLine) {
-                targetLine.style.left = `${targetPower}%`;
+                targetLine.style.left = targetPower + '%';
             }
-        }
-
-        function updatePowerBarUI() {
-            const fill = document.getElementById('power-fill');
-            if (fill) {
-                fill.style.width = `${currentPower}%`;
-            }
-        }
-
-        function startCharging() {
-            if (!isGameActive || isScanningMarker || isGameOver || frisbeeActive) return;
-            isCharging = true;
-            currentPower = 0;
-            powerDirection = 1;
-            updatePowerBarUI();
-        }
-
-        function releaseThrow() {
-            if (!isCharging) return;
-            isCharging = false;
-
-            const diff = Math.abs(currentPower - targetPower);
-            const isPerfect = diff <= tolerance;
-            throwFrisbee(isPerfect);
-
-            currentPower = 0;
-            updatePowerBarUI();
-        }
-
-        function throwFrisbee(isHit) {
-            if (!frisbeeMesh || !camera) return;
-
-            const startPos = camera.position.clone();
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const down = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
-            startPos.addScaledVector(forward, 0.25).addScaledVector(down, 0.14);
-
-            frisbeeMesh.position.copy(startPos);
-            frisbeeMesh.rotation.set(0.15, 0, 0);
-            frisbeeMesh.visible = true;
-            frisbeeActive = true;
-            frisbeeFlightTime = 0;
-            frisbeeWillHit = isHit;
-
-            // Aim straight at the purple disc golf basket inside the portal if hit, else veer wide
-            if (currentTarget) {
-                const basket = currentTarget.getObjectByName('disc-golf-basket');
-                if (basket) {
-                    basket.getWorldPosition(frisbeeTargetPoint);
-                    frisbeeTargetPoint.y += 0.025;
-                } else {
-                    frisbeeTargetPoint.copy(currentTarget.position);
-                    frisbeeTargetPoint.y += DIORAMA_DEPTH_M * 0.45;
-                }
-            } else {
-                frisbeeTargetPoint.copy(camera.position).addScaledVector(forward, 1.2);
-            }
-
-            if (!isHit) {
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                const missSide = Math.random() > 0.5 ? 1 : -1;
-                frisbeeTargetPoint.addScaledVector(right, missSide * 0.35);
-                frisbeeTargetPoint.y += (Math.random() - 0.3) * 0.25;
-            }
-
-            const flightDir = new THREE.Vector3().subVectors(frisbeeTargetPoint, startPos).normalize();
-            frisbeeVelocity.copy(flightDir).multiplyScalar(2.6);
         }
 
         function showScorePopup() {
@@ -1198,54 +1177,120 @@
             if (!popup) return;
             popup.style.display = 'block';
             popup.style.opacity = '1';
-            popup.style.transform = 'translate(-50%, -50%) scale(1)';
+            popup.style.transform = 'translate(-50%, -50%) scale(1.1)';
 
-            requestAnimationFrame(() => {
-                popup.style.transform = 'translate(-50%, -130%) scale(1.15)';
+            setTimeout(() => {
                 popup.style.opacity = '0';
-            });
+                popup.style.transform = 'translate(-50%, -110%) scale(1.0)';
+            }, 60);
 
             setTimeout(() => {
                 popup.style.display = 'none';
-            }, 650);
+            }, 680);
+        }
+
+        function throwFrisbee(powerPercent) {
+            if (!frisbeeMesh || frisbeeActive || !isGameActive || isGameOver) return;
+
+            frisbeeIsHit = Math.abs(powerPercent - targetPower) <= tolerance;
+            frisbeeActive = true;
+            frisbeeFlightTime = 0;
+
+            camera.updateMatrixWorld();
+
+            // Launch frisbee slightly below the camera center
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+            const startPos = camera.position.clone()
+                .addScaledVector(forward, 0.16)
+                .addScaledVector(up, -0.07);
+
+            frisbeeMesh.position.copy(startPos);
+            frisbeeMesh.quaternion.copy(camera.quaternion);
+            frisbeeMesh.visible = true;
+
+            if (frisbeeIsHit && currentTarget) {
+                const basket = currentTarget.getObjectByName('disc-golf-basket');
+                if (basket) {
+                    basket.getWorldPosition(frisbeeTargetPoint);
+                    frisbeeTargetPoint.y += 0.025;
+                } else {
+                    frisbeeTargetPoint.copy(currentTarget.position);
+                }
+            } else {
+                // Miss trajectory based on under-power vs over-power
+                const powerDelta = (powerPercent - targetPower) / 100;
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+                const missDist = currentTarget ? currentTarget.position.distanceTo(camera.position) + 0.35 : 1.3;
+                frisbeeTargetPoint.copy(camera.position)
+                    .addScaledVector(forward, missDist)
+                    .addScaledVector(right, (Math.random() > 0.5 ? 1 : -1) * 0.28)
+                    .addScaledVector(up, powerDelta * 0.65);
+            }
+
+            const flightDuration = 0.55;
+            frisbeeVelocity.subVectors(frisbeeTargetPoint, startPos).divideScalar(flightDuration);
         }
 
         function handleMiss() {
             misses++;
             if (misses >= 20) {
                 isGameOver = true;
+                isGameActive = false;
                 const overlay = document.getElementById('continue-overlay');
-                if (overlay) {
-                    overlay.style.display = 'flex';
-                }
+                if (overlay) overlay.style.display = 'flex';
+            } else {
+                randomizeTargetLine();
             }
         }
 
-        function continueGame(e) {
-            if (e) e.stopPropagation();
+        function continueGame() {
             misses = 0;
             isGameOver = false;
+            isGameActive = true;
             const overlay = document.getElementById('continue-overlay');
-            if (overlay) {
-                overlay.style.display = 'none';
-            }
+            if (overlay) overlay.style.display = 'none';
             randomizeTargetLine();
         }
 
-        function onWindowResize() {
-            if (!camera || !renderer) return;
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        async function startGame(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (hasGameStarted) return;
+            hasGameStarted = true;
+
+            const scanBtn = document.getElementById('scan-btn');
+            if (scanBtn) {
+                scanBtn.style.opacity = '0';
+                scanBtn.style.pointerEvents = 'none';
+                setTimeout(() => { scanBtn.style.display = 'none'; }, 350);
+            }
+
+            // Request iOS 13+ DeviceOrientation permission inside user gesture
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    await DeviceOrientationEvent.requestPermission();
+                } catch (err) {
+                    console.warn('Orientation permission not granted:', err);
+                }
+            }
+
+            // Start live camera feed without blocking Three.js setup
+            startCameraFeed();
+            initThreeJS();
+            startScanningForReticle();
         }
 
         function animate(now) {
             requestAnimationFrame(animate);
+
             const dt = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
-            // Update Power Slider Charge
-            if (isCharging) {
+            // Update Power Meter while charging
+            if (isCharging && isGameActive && !isGameOver) {
                 currentPower += powerDirection * chargeSpeed * dt;
                 if (currentPower >= 100) {
                     currentPower = 100;
@@ -1254,10 +1299,11 @@
                     currentPower = 0;
                     powerDirection = 1;
                 }
-                updatePowerBarUI();
+                const powerFill = document.getElementById('power-fill');
+                if (powerFill) powerFill.style.width = currentPower + '%';
             }
 
-            // Visual-Inertial Orientation + World-Anchored Proximity Tracking (no camera-follow drift)
+            // Visual-Inertial Orientation + Live Reticle-Center World Anchoring
             if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
                 controls.update();
             } else if (camera) {
@@ -1265,31 +1311,26 @@
                 camera.rotation.x = cameraPitch;
             }
 
-            if (currentTarget && anchorWorldCenter) {
-                updateProximityFromCameraFeed(now);
-                currentCameraDist = THREE.MathUtils.lerp(currentCameraDist, targetCameraDist, 0.14);
-                camera.position.x = anchorWorldCenter.x + anchorNormal.x * currentCameraDist;
-                camera.position.z = anchorWorldCenter.z + anchorNormal.z * currentCameraDist;
-                camera.position.y = anchorWorldCenter.y;
+            if (camera) {
+                camera.updateMatrixWorld();
+            }
+
+            if (currentTarget) {
+                updateReticleAnchor(now);
             }
 
             // Update 3D Frisbee Flight & Scoring
             if (frisbeeActive && frisbeeMesh) {
                 frisbeeFlightTime += dt;
                 frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
-                frisbeeMesh.rotation.y += 18 * dt;
+                frisbeeMesh.rotation.y += 22 * dt;
 
-                const distToTarget = frisbeeMesh.position.distanceTo(frisbeeTargetPoint);
-                if (frisbeeWillHit && distToTarget < 0.09) {
+                const distToGoal = frisbeeMesh.position.distanceTo(frisbeeTargetPoint);
+                if (distToGoal < 0.065 || frisbeeFlightTime >= 0.62) {
                     frisbeeActive = false;
                     frisbeeMesh.visible = false;
-                    score++;
-                    showScorePopup();
-                    randomizeTargetLine();
-                } else if (frisbeeFlightTime > 0.9) {
-                    frisbeeActive = false;
-                    frisbeeMesh.visible = false;
-                    if (frisbeeWillHit) {
+
+                    if (frisbeeIsHit) {
                         score++;
                         showScorePopup();
                         randomizeTargetLine();
@@ -1304,96 +1345,105 @@
             }
         }
 
-        // Bind Mobile-Safe Button & Gameplay Input Listeners once DOM is ready
-        window.addEventListener('DOMContentLoaded', () => {
+        // Bind UI & Touch/Mouse Input Listeners
+        document.addEventListener('DOMContentLoaded', () => {
             const scanBtn = document.getElementById('scan-btn');
             const continueBtn = document.getElementById('continue-btn');
             const scannerFrame = document.getElementById('scanner-frame');
 
             if (scanBtn) {
                 scanBtn.addEventListener('click', startGame);
-                scanBtn.addEventListener('touchend', (e) => {
-                    e.preventDefault();
-                    startGame(e);
-                }, { passive: false });
+                scanBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
+                scanBtn.addEventListener('touchend', startGame, { passive: false });
             }
 
             if (continueBtn) {
-                continueBtn.addEventListener('click', continueGame);
+                continueBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    continueGame();
+                });
                 continueBtn.addEventListener('touchend', (e) => {
                     e.preventDefault();
-                    continueGame(e);
+                    e.stopPropagation();
+                    continueGame();
                 }, { passive: false });
             }
 
             if (scannerFrame) {
-                scannerFrame.addEventListener('click', finishScanningAndSpawn);
+                scannerFrame.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    completeReticleScan();
+                });
                 scannerFrame.addEventListener('touchend', (e) => {
                     e.preventDefault();
-                    finishScanningAndSpawn();
+                    e.stopPropagation();
+                    completeReticleScan();
                 }, { passive: false });
             }
 
-            // Touch Controls for Charging & Throwing Frisbee (only active after scanning finishes)
-            window.addEventListener('touchstart', (e) => {
-                if (!isGameActive || isScanningMarker || isGameOver) return;
-                if (e.target.closest('button')) return;
-                isPointerDown = true;
-                lastPointerPos.x = e.touches[0].clientX;
-                lastPointerPos.y = e.touches[0].clientY;
-                startCharging();
-            }, { passive: true });
+            const beginCharge = () => {
+                if (!isGameActive || isGameOver || frisbeeActive) return;
+                isCharging = true;
+                currentPower = 0;
+                powerDirection = 1;
+                const powerFill = document.getElementById('power-fill');
+                if (powerFill) powerFill.style.width = '0%';
+            };
 
-            window.addEventListener('touchmove', (e) => {
-                if (!isPointerDown || !isGameActive || isScanningMarker || isGameOver) return;
-                if (!controls || !controls.deviceOrientation || controls.deviceOrientation.alpha === null) {
-                    const dx = e.touches[0].clientX - lastPointerPos.x;
-                    const dy = e.touches[0].clientY - lastPointerPos.y;
-                    cameraYaw = THREE.MathUtils.clamp(cameraYaw - dx * 0.004, -0.7, 0.7);
-                    cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.004, -0.45, 0.45);
-                    lastPointerPos.x = e.touches[0].clientX;
-                    lastPointerPos.y = e.touches[0].clientY;
-                }
+            const releaseCharge = () => {
+                if (!isCharging) return;
+                isCharging = false;
+                throwFrisbee(currentPower);
+            };
+
+            // Touch Controls (Charge & Throw)
+            window.addEventListener('touchstart', (e) => {
+                if (!isGameActive || isGameOver) return;
+                if (e.target.closest('button') || e.target.closest('#scanner-frame')) return;
+                beginCharge();
             }, { passive: true });
 
             window.addEventListener('touchend', (e) => {
-                if (!isPointerDown) return;
-                isPointerDown = false;
-                if (!isGameActive || isScanningMarker || isGameOver) return;
-                releaseThrow();
+                if (!isGameActive || isGameOver) return;
+                releaseCharge();
             }, { passive: true });
 
-            // Mouse Controls for Desktop Testing
+            // Desktop Mouse Controls (Drag to Aim or Hold to Throw)
             window.addEventListener('mousedown', (e) => {
-                if (!isGameActive || isScanningMarker || isGameOver) return;
-                if (e.target.closest('button')) return;
-                isPointerDown = true;
-                lastPointerPos.x = e.clientX;
-                lastPointerPos.y = e.clientY;
-                startCharging();
+                if (!isGameActive || isGameOver) return;
+                if (e.target.closest('button') || e.target.closest('#scanner-frame')) return;
+                if (e.button === 2) {
+                    isDraggingCamera = true;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                } else {
+                    beginCharge();
+                }
             });
 
             window.addEventListener('mousemove', (e) => {
-                if (!isPointerDown || !isGameActive || isScanningMarker || isGameOver) return;
-                const dx = e.clientX - lastPointerPos.x;
-                const dy = e.clientY - lastPointerPos.y;
-                cameraYaw = THREE.MathUtils.clamp(cameraYaw - dx * 0.004, -0.7, 0.7);
-                cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.004, -0.45, 0.45);
-                lastPointerPos.x = e.clientX;
-                lastPointerPos.y = e.clientY;
+                if (!isDraggingCamera) return;
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                cameraYaw -= dx * 0.004;
+                cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.004, -Math.PI / 3, Math.PI / 3);
             });
 
             window.addEventListener('mouseup', () => {
-                if (!isPointerDown) return;
-                isPointerDown = false;
-                if (!isGameActive || isScanningMarker || isGameOver) return;
-                releaseThrow();
+                isDraggingCamera = false;
+                releaseCharge();
             });
+
+            window.addEventListener('contextmenu', (e) => e.preventDefault());
 
             // Desktop scroll-wheel proximity test
             window.addEventListener('wheel', (e) => {
                 if (!isGameActive || !currentTarget) return;
-                targetCameraDist = THREE.MathUtils.clamp(targetCameraDist + e.deltaY * 0.001, 0.30, 2.20);
+                targetAnchorDist = THREE.MathUtils.clamp(targetAnchorDist + e.deltaY * 0.001, 0.28, 2.40);
+                const dir = new THREE.Vector3().subVectors(currentTarget.position, camera.position).normalize();
+                currentTarget.position.copy(camera.position).addScaledVector(dir, targetAnchorDist);
             }, { passive: true });
         });
     </script>
