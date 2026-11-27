@@ -20,6 +20,7 @@
             font-family: 'Shrikhand', Georgia, serif;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: none;
         }
 
         /* Live Camera Video Feed */
@@ -45,11 +46,11 @@
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
-            padding: 40px 20px 60px 20px;
-            pointer-events: none; /* Let touches pass through to Three.js scene */
+            padding: 36px 20px 56px 20px;
+            box-sizing: border-box;
+            pointer-events: none;
         }
 
-        /* Make specific UI elements interactive */
         .interactive-element {
             pointer-events: auto;
         }
@@ -78,41 +79,41 @@
             background-color: #B0B0B0;
             border: 4px solid black;
             border-radius: 20px;
-            padding: 8px 30px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            pointer-events: auto;
+            padding: 8px 28px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             position: relative;
             z-index: 100;
             transition: opacity 0.4s ease;
         }
 
         .banner-text-bg {
-            -webkit-text-stroke: 10px #8B5CF6; /* Purple outline */
+            -webkit-text-stroke: 8px #8B5CF6;
             color: #8B5CF6;
         }
 
-        /* Center Button Styles */
+        /* Center Start / Continue Button Styles */
         .scan-button {
             background: linear-gradient(135deg, #74ED63 0%, #C4D942 100%);
             border: 4px solid black;
             border-radius: 20px;
-            padding: 12px 40px;
-            box-shadow: 0 6px 10px rgba(0,0,0,0.3);
+            padding: 14px 40px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.35);
             cursor: pointer;
             opacity: 1;
             position: relative;
-            z-index: 150;
+            z-index: 300;
+            pointer-events: auto;
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
-            transition: opacity 0.5s ease-in-out, transform 0.1s;
+            transition: opacity 0.35s ease-in-out, transform 0.1s ease;
         }
-        
+
         .scan-button:active {
             transform: scale(0.95);
         }
 
         .scan-text-bg {
-            -webkit-text-stroke: 10px #246B3E; /* Dark green outline */
+            -webkit-text-stroke: 8px #246B3E;
             color: #246B3E;
         }
 
@@ -128,9 +129,9 @@
             align-items: center;
             padding: 0 20px;
             position: relative;
-            pointer-events: auto;
             z-index: 100;
             transition: opacity 0.4s ease;
+            box-sizing: border-box;
         }
 
         .slider-end-mark {
@@ -148,7 +149,7 @@
         }
 
         .slider-track-left {
-            height: 8px;
+            height: 10px;
             width: 0%;
             background-color: #D282FF;
             border-top: 2px solid black;
@@ -157,7 +158,7 @@
 
         .slider-track-right {
             height: 10px;
-            width: 100%;
+            flex: 1;
             background-color: black;
         }
 
@@ -165,10 +166,17 @@
             width: 6px;
             height: 40px;
             background-color: #74ED63;
+            border: 1px solid black;
             position: absolute;
             left: 50%;
             transform: translateX(-50%);
             z-index: 20;
+        }
+
+        @keyframes pulse {
+            0% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
+            50% { border-color: rgba(116, 237, 99, 0.35); box-shadow: 0 0 10px rgba(116, 237, 99, 0.15); }
+            100% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
         }
     </style>
 </head>
@@ -184,28 +192,28 @@
     <div id="ui-layer">
 
         <!-- Top Banner -->
-        <div id="top-banner" class="banner-container interactive-element" style="opacity: 0;">
-            <div class="text-outline-wrapper text-4xl sm:text-5xl md:text-6xl italic tracking-wide">
+        <div id="top-banner" class="banner-container interactive-element" style="opacity: 0; pointer-events: none;">
+            <div class="text-outline-wrapper text-3xl sm:text-5xl md:text-6xl italic tracking-wide">
                 <span class="text-outline-bg banner-text-bg" aria-hidden="true">Hole in the Wall</span>
                 <span class="text-outline-fg">Hole in the Wall</span>
             </div>
         </div>
 
         <!-- Center Start Button -->
-        <button id="scan-btn" class="scan-button interactive-element" onclick="startGame()">
-            <div class="text-outline-wrapper text-4xl md:text-5xl italic tracking-wider">
+        <button id="scan-btn" type="button" class="scan-button interactive-element">
+            <div class="text-outline-wrapper text-3xl sm:text-4xl md:text-5xl italic tracking-wider">
                 <span class="text-outline-bg scan-text-bg" aria-hidden="true">Start Game</span>
                 <span class="text-outline-fg">Start Game</span>
             </div>
         </button>
 
         <!-- Score Popup -->
-        <div id="score-popup" style="display: none; position: absolute; color: #74ED63; font-family: 'Shrikhand', Georgia, serif; font-size: 2rem; font-weight: bold; -webkit-text-stroke: 1px black; z-index: 150; pointer-events: none; transition: transform 0.5s ease-out, opacity 0.5s ease-out; transform: translate(-50%, -50%);">+ 1 Point</div>
+        <div id="score-popup" style="display: none; position: absolute; left: 50%; top: 45%; color: #74ED63; font-family: 'Shrikhand', Georgia, serif; font-size: 2rem; font-weight: bold; -webkit-text-stroke: 1.5px black; z-index: 150; pointer-events: none; transition: transform 0.6s ease-out, opacity 0.6s ease-out; transform: translate(-50%, -50%);">+ 1 Point</div>
 
         <!-- Continue Overlay -->
-        <div id="continue-overlay" style="display: none; position: absolute; top: 0; left: 0; height: 100%; width: 100%; background-color: rgba(0,0,0,0.8); z-index: 200; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;">
+        <div id="continue-overlay" style="display: none; position: absolute; top: 0; left: 0; height: 100%; width: 100%; background-color: rgba(0, 0, 0, 0.8); z-index: 250; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;">
             <div class="text-white text-4xl mb-6 tracking-wider" style="-webkit-text-stroke: 2px black;">20 Misses!</div>
-            <button onclick="continueGame()" class="scan-button interactive-element">
+            <button id="continue-btn" type="button" class="scan-button interactive-element">
                 <div class="text-outline-wrapper text-3xl italic tracking-wider">
                     <span class="text-outline-bg scan-text-bg" aria-hidden="true">Continue?</span>
                     <span class="text-outline-fg">Continue?</span>
@@ -215,31 +223,30 @@
 
         <!-- Simulated Image Scanner UI -->
         <div id="scanner-ui" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 120; flex-direction: column; justify-content: center; align-items: center; pointer-events: none;">
-            <div style="border: 4px dashed #74ED63; width: 220px; height: 220px; border-radius: 16px; position: relative; box-shadow: 0 0 20px rgba(116, 237, 99, 0.3); animation: pulse 2s infinite;">
-                <div style="position: absolute; top: -40px; left: 0; width: 100%; text-align: center; color: #74ED63; font-weight: bold; font-family: sans-serif; font-size: 1.2rem; text-shadow: 2px 2px 4px black; -webkit-text-stroke: 1px black;">SCANNING RETICLE...</div>
-                <div style="position: absolute; bottom: -40px; left: 0; width: 100%; text-align: center; color: white; font-family: sans-serif; font-size: 0.9rem; text-shadow: 1px 1px 2px black;">Align scannable image in frame</div>
+            <div id="scanner-frame" style="border: 4px dashed #74ED63; width: 220px; height: 220px; border-radius: 16px; position: relative; animation: pulse 2s infinite; pointer-events: auto; cursor: pointer;">
+                <div style="position: absolute; top: -40px; left: 0; width: 100%; text-align: center; color: #74ED63; font-weight: bold; font-family: sans-serif; font-size: 1.15rem; text-shadow: 2px 2px 4px black;">SCANNING RETICLE...</div>
+                <div style="position: absolute; bottom: -46px; left: 0; width: 100%; text-align: center; color: white; font-family: sans-serif; font-size: 0.85rem; text-shadow: 1px 1px 2px black;">Align scannable image (or tap frame)</div>
             </div>
-            
+
             <!-- Reference Image for the User -->
-            <div style="position: absolute; bottom: 100px; right: 20px; display: flex; flex-direction: column; align-items: center;">
-                <span style="color: white; font-family: sans-serif; font-size: 0.8rem; text-shadow: 1px 1px 2px black; margin-bottom: 5px;">Target Marker</span>
-                <img src="Scannable_Reticle.png" alt="Reticle Reference" style="width: 80px; height: 80px; border: 2px solid white; border-radius: 10px; background: rgba(0,0,0,0.5); object-fit: contain;">
+            <div style="position: absolute; bottom: 110px; right: 20px; display: flex; flex-direction: column; align-items: center;">
+                <span style="color: white; font-family: sans-serif; font-size: 0.75rem; text-shadow: 1px 1px 2px black; margin-bottom: 5px;">Target Marker</span>
+                <img id="reticle-ref-img" src="Scannable_Reticle.png" alt="Reticle Reference" style="width: 76px; height: 76px; border: 2px solid white; border-radius: 10px; background: rgba(255, 255, 255, 0.9); object-fit: contain;" onerror="this.style.display='none'; document.getElementById('reticle-svg-fallback').style.display='block';">
+                <svg id="reticle-svg-fallback" viewBox="0 0 100 100" style="display: none; width: 76px; height: 76px; border: 2px solid white; border-radius: 10px; background: white;">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="#999" stroke-width="2.5"/>
+                    <circle cx="50" cy="50" r="36" fill="none" stroke="#999" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="31" fill="#1a1a1a"/>
+                    <path d="M32 66 V34 H37 L42 46 L47 34 H52 V66 H47 V45 L42 54 L37 45 V66 Z" fill="#bbb"/>
+                    <polygon points="58,34 76,50 58,66" fill="#bbb"/>
+                </svg>
             </div>
         </div>
 
-        <style>
-            @keyframes pulse {
-                0% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
-                50% { border-color: rgba(116, 237, 99, 0.3); box-shadow: 0 0 10px rgba(116, 237, 99, 0.1); }
-                100% { border-color: rgba(116, 237, 99, 1); box-shadow: 0 0 20px rgba(116, 237, 99, 0.5); }
-            }
-        </style>
-
-        <!-- Bottom Slider -->
-        <div id="bottom-slider" class="slider-container interactive-element" style="opacity: 0;">
+        <!-- Bottom Power Slider -->
+        <div id="bottom-slider" class="slider-container interactive-element" style="opacity: 0; pointer-events: none;">
             <div class="slider-end-mark"></div>
             <div class="slider-track-container mx-1">
-                <div class="slider-track-left"></div>
+                <div class="slider-track-left" id="power-fill"></div>
                 <div class="slider-track-right"></div>
                 <div class="slider-target-line" id="target-line"></div>
             </div>
@@ -252,14 +259,18 @@
     <script>
         // Game State Variables
         let isGameActive = false;
+        let hasGameStarted = false;
+        let isScanningMarker = false;
+        let scanTimeoutId = null;
         let isCharging = false;
         let currentPower = 0;
         let powerDirection = 1;
-        let chargeSpeed = 2; // Pace at which the power increases
+        const chargeSpeed = 95; // Percentage per second
         let targetPower = 50;
-        const tolerance = 6; // +/- 6% for perfect throw
+        const tolerance = 6; // +/- 6% for a successful throw
 
         let misses = 0;
+        let score = 0;
         let isGameOver = false;
 
         // Three.js Variables
@@ -267,28 +278,28 @@
         let activeTargets = [];
         let currentTarget = null;
         let environmentGroup;
+        let controls = null; // Visual-Inertial Tracker
+        let lastTime = 0;
 
-        // 3D Park Diorama Dimensions (matches 8.5" x 11" rectangular grass footprint in meters)
+        // 3D Park Diorama Dimensions (8.5" x 11" footprint in meters)
         const DIORAMA_WIDTH_M = 0.2159;  // 8.5 inches
         const DIORAMA_DEPTH_M = 0.2794;  // 11.0 inches
 
         // 3D Frisbee Variables
-        let frisbeeMesh;
+        let frisbeeMesh = null;
         let frisbeeActive = false;
         let frisbeeVelocity = new THREE.Vector3();
-        let targetAim = null;
+        let frisbeeFlightTime = 0;
+        let frisbeeWillHit = false;
+        let frisbeeTargetPoint = new THREE.Vector3();
 
-        // Camera Look / Drag Control Variables
-        let isDraggingCamera = false;
-        let pointerDownPos = { x: 0, y: 0 };
+        // Desktop / Fallback Camera Look Variables
+        let isPointerDown = false;
         let lastPointerPos = { x: 0, y: 0 };
         let cameraYaw = 0;
         let cameraPitch = 0;
 
-        let isScanningMarker = false;
-        let controls; // Visual-Inertial Tracker
-        let hasGameStarted = false;
-
+        // Start rear camera feed without blocking UI
         async function startCameraFeed() {
             const video = document.getElementById('camera-feed');
             if (!video || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
@@ -309,6 +320,7 @@
             }
         }
 
+        // Main entry point triggered by tapping or clicking "Start Game"
         async function startGame(e) {
             if (e) {
                 e.stopPropagation();
@@ -318,28 +330,27 @@
 
             const button = document.getElementById('scan-btn');
             if (button) {
-                button.style.transform = 'scale(0.9)';
+                button.style.transform = 'scale(0.92)';
+                button.style.opacity = '0';
+                button.style.pointerEvents = 'none';
                 setTimeout(() => {
-                    button.style.transform = 'scale(1)';
-                    button.style.opacity = '0';
-                    button.style.pointerEvents = 'none';
                     button.style.display = 'none';
-                }, 120);
+                }, 250);
             }
 
-            // Request Device Orientation Permission for Visual-Inertial Tracking (iOS 13+)
+            // Request iOS 13+ DeviceOrientation permission directly inside user gesture
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const permission = await DeviceOrientationEvent.requestPermission();
                     if (permission !== 'granted') {
-                        console.warn('Device orientation permission not granted for visual-inertial tracking.');
+                        console.warn('Device orientation permission not granted.');
                     }
                 } catch (error) {
-                    console.error('Error requesting device orientation permission:', error);
+                    console.warn('Device orientation permission request skipped:', error);
                 }
             }
 
-            // Initialize Three.js and start scanning immediately without letting camera prompts stall startup
+            // Initialize Three.js scene and begin reticle scanning immediately
             try {
                 if (!renderer) {
                     initThreeJS();
@@ -347,51 +358,80 @@
                 isGameActive = true;
                 startScanningForReticle();
             } catch (err) {
-                console.error('Error initializing game:', err);
+                console.error('Error initializing Three.js game:', err);
                 hasGameStarted = false;
+                if (button) {
+                    button.style.display = 'block';
+                    button.style.opacity = '1';
+                    button.style.pointerEvents = 'auto';
+                }
+                return;
             }
 
-            // Start live camera feed asynchronously so mobile permission dialogs don't block the UI
+            // Start live camera feed asynchronously so mobile permission dialogs don't stall startup
             startCameraFeed();
         }
 
-        // Bind mobile-safe touch handlers directly on Start Game so global canvas touch listeners cannot block taps
-        (function bindStartButtonTouch() {
-            const scanBtn = document.getElementById('scan-btn');
-            if (!scanBtn) return;
+        function startScanningForReticle() {
+            isScanningMarker = true;
+            const scannerUI = document.getElementById('scanner-ui');
+            if (scannerUI) {
+                scannerUI.style.display = 'flex';
+            }
 
-            scanBtn.addEventListener('touchstart', (e) => {
-                e.stopPropagation();
-                scanBtn.style.transform = 'scale(0.95)';
-            }, { passive: true });
+            if (scanTimeoutId) clearTimeout(scanTimeoutId);
+            scanTimeoutId = setTimeout(() => {
+                finishScanningAndSpawn();
+            }, 2200);
+        }
 
-            scanBtn.addEventListener('touchend', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                startGame(e);
-            }, { passive: false });
-        })();
+        function finishScanningAndSpawn() {
+            if (!isScanningMarker) return;
+            isScanningMarker = false;
+            if (scanTimeoutId) {
+                clearTimeout(scanTimeoutId);
+                scanTimeoutId = null;
+            }
+
+            const scannerUI = document.getElementById('scanner-ui');
+            if (scannerUI) {
+                scannerUI.style.display = 'none';
+            }
+
+            const topBanner = document.getElementById('top-banner');
+            const bottomSlider = document.getElementById('bottom-slider');
+            if (topBanner) {
+                topBanner.style.opacity = '1';
+                topBanner.style.pointerEvents = 'auto';
+            }
+            if (bottomSlider) {
+                bottomSlider.style.opacity = '1';
+                bottomSlider.style.pointerEvents = 'auto';
+            }
+
+            randomizeTargetLine();
+            spawnTargetOnReticle();
+        }
 
         function initThreeJS() {
             const container = document.getElementById('three-container');
             scene = new THREE.Scene();
-            scene.background = null; // Keep transparent so live camera feed shows through
+            scene.background = null; // Transparent so live camera feed shows through
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.05, 50);
             camera.position.set(0, 1.4, 0); // Eye level
             camera.rotation.order = 'YXZ';
 
-            // Transparent renderer so the live camera feed shows through cleanly (no stencil shader)
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setClearColor(0x000000, 0);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
 
-            // Lighting tuned to match the reference shots (bright warm top light + deep foliage undersides)
-            const hemiLight = new THREE.HemisphereLight(0xfff5ec, 0x261712, 0.75);
+            // Lighting matching the park reference shots
+            const hemiLight = new THREE.HemisphereLight(0xfff5ec, 0x261712, 0.78);
             scene.add(hemiLight);
 
             const dirLight = new THREE.DirectionalLight(0xfffaf0, 1.35);
@@ -409,7 +449,7 @@
             environmentGroup = new THREE.Group();
             scene.add(environmentGroup);
 
-            // Initialize Device Orientation Tracking for AR feel (guarded for mobile browser compatibility)
+            // Visual-Inertial Tracking via DeviceOrientationControls
             if (typeof THREE.DeviceOrientationControls === 'function') {
                 try {
                     controls = new THREE.DeviceOrientationControls(camera);
@@ -418,10 +458,10 @@
                 }
             }
 
-            // Build the 3D Park Environment directly from the reference shots
+            // Build the 3D Park Environment + Recessed Light-Blue Portal Cavity + Invisible Occluder Box
             buildTargetTemplate();
 
-            // Build High-Detail Blender-Style 3D Frisbee
+            // Build Blender-Style 3D Frisbee
             buildFrisbeeMesh();
 
             window.addEventListener('resize', onWindowResize);
@@ -435,11 +475,9 @@
             canvas.height = 256;
             const ctx = canvas.getContext('2d');
 
-            // Base lush meadow green
             ctx.fillStyle = '#5c9436';
             ctx.fillRect(0, 0, 256, 256);
 
-            // Mottled light yellow-green and deep forest green blades/tufts
             const palette = ['#7eb84c', '#98cc64', '#427326', '#2e5718', '#b0db7d', '#548731'];
             for (let i = 0; i < 4200; i++) {
                 ctx.fillStyle = palette[Math.floor(Math.random() * palette.length)];
@@ -457,45 +495,344 @@
             return tex;
         }
 
-        function createInteriorSkyTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 128;
-            canvas.height = 256;
-            const ctx = canvas.getContext('2d');
+        function createBranchTube(pointsArr, radiusBottom, radiusTop, material) {
+            const curve = new THREE.CatmullRomCurve3(pointsArr);
+            const segs = 12;
+            const radSegs = 8;
+            const geom = new THREE.TubeGeometry(curve, segs, radiusBottom, radSegs, false);
 
-            // Soft sunlit sky gradient fading to warm pale horizon inside the recessed portal
-            const grad = ctx.createLinearGradient(0, 0, 0, 256);
-            grad.addColorStop(0.0, '#6aa6d8');
-            grad.addColorStop(0.55, '#b6d8f2');
-            grad.addColorStop(0.88, '#e8efe6');
-            grad.addColorStop(1.0, '#3e4f34');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, 128, 256);
-
-            return new THREE.CanvasTexture(canvas);
+            // Taper tube radius along length from radiusBottom to radiusTop
+            const pos = geom.attributes.position;
+            const v = new THREE.Vector3();
+            for (let i = 0; i <= segs; i++) {
+                const t = i / segs;
+                const center = curve.getPointAt(t);
+                const scale = THREE.MathUtils.lerp(1.0, radiusTop / radiusBottom, t);
+                for (let j = 0; j <= radSegs; j++) {
+                    const idx = i * (radSegs + 1) + j;
+                    v.fromBufferAttribute(pos, idx);
+                    v.sub(center).multiplyScalar(scale).add(center);
+                    pos.setXYZ(idx, v.x, v.y, v.z);
+                }
+            }
+            geom.computeVertexNormals();
+            const mesh = new THREE.Mesh(geom, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
         }
 
-        function createBranchTube(pointsArr, radiusBottom, radiusTop, material) {
-// ... existing code ... -->
+        function addLeafCluster(parentGroup, clusters) {
+            // Leaf-card geometry (diamond-like angled blade)
+            const leafShape = new THREE.Shape();
+            leafShape.moveTo(0, 0);
+            leafShape.quadraticCurveTo(0.0042, 0.0045, 0, 0.0115);
+            leafShape.quadraticCurveTo(-0.0042, 0.0045, 0, 0);
+            const leafGeom = new THREE.ShapeGeometry(leafShape);
+
+            const leafMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.85,
+                metalness: 0.05,
+                side: THREE.DoubleSide
+            });
+
+            let totalLeaves = 0;
+            clusters.forEach((c) => { totalLeaves += c.count; });
+
+            const instancedLeaves = new THREE.InstancedMesh(leafGeom, leafMat, totalLeaves);
+            instancedLeaves.castShadow = true;
+            instancedLeaves.receiveShadow = true;
+
+            const dummy = new THREE.Object3D();
+            const color = new THREE.Color();
+            const topColor = new THREE.Color(0xe6c8be);     // Dusty cream-pink top highlights
+            const midColor = new THREE.Color(0xb88f84);     // Warm dusty rose
+            const darkColor = new THREE.Color(0x3a2018);    // Deep brown shaded undersides
+
+            let idx = 0;
+            clusters.forEach((c) => {
+                for (let i = 0; i < c.count; i++) {
+                    // Distribute leaves around spherical cluster volume
+                    const u = Math.random();
+                    const v = Math.random();
+                    const theta = u * 2.0 * Math.PI;
+                    const phi = Math.acos(2.0 * v - 1.0);
+                    const r = c.radius * (0.35 + 0.65 * Math.cbrt(Math.random()));
+
+                    const lx = r * Math.sin(phi) * Math.cos(theta);
+                    const ly = r * Math.cos(phi) * 0.92;
+                    const lz = r * Math.sin(phi) * Math.sin(theta);
+
+                    dummy.position.set(c.x + lx, c.y + ly, c.z + lz);
+                    dummy.rotation.set(
+                        Math.random() * Math.PI * 2,
+                        Math.random() * Math.PI * 2,
+                        Math.random() * Math.PI * 2
+                    );
+                    const s = 0.75 + Math.random() * 0.65;
+                    dummy.scale.set(s, s, s);
+                    dummy.updateMatrix();
+                    instancedLeaves.setMatrixAt(idx, dummy.matrix);
+
+                    // Shade top leaves lighter and underside leaves deep brown like reference shots
+                    const heightNorm = THREE.MathUtils.clamp((ly / c.radius + 1) * 0.5, 0, 1);
+                    if (heightNorm > 0.55) {
+                        color.copy(midColor).lerp(topColor, (heightNorm - 0.55) / 0.45);
+                    } else {
+                        color.copy(darkColor).lerp(midColor, heightNorm / 0.55);
+                    }
+                    instancedLeaves.setColorAt(idx, color);
+                    idx++;
+                }
+            });
+
+            instancedLeaves.instanceMatrix.needsUpdate = true;
+            if (instancedLeaves.instanceColor) instancedLeaves.instanceColor.needsUpdate = true;
+            parentGroup.add(instancedLeaves);
+        }
+
+        function buildTargetTemplate() {
+            targetTemplateMesh = new THREE.Group();
+            targetTemplateMesh.name = 'park-portal-root';
+
+            const parkContentGroup = new THREE.Group();
+            parkContentGroup.name = 'park-diorama-content';
+
+            const grassW = DIORAMA_WIDTH_M;
+            const grassD = DIORAMA_DEPTH_M;
+            const grassH = 0.008;
+
+            // 1. Rectangular Mottled Grass Base
+            const grassTex = createGrassTexture();
+            const grassMat = new THREE.MeshStandardMaterial({
+                map: grassTex,
+                roughness: 0.92,
+                metalness: 0.02
+            });
+            const grassMesh = new THREE.Mesh(new THREE.BoxGeometry(grassW, grassH, grassD), grassMat);
+            grassMesh.position.set(0, grassH / 2, 0);
+            grassMesh.receiveShadow = true;
+            parkContentGroup.add(grassMesh);
+
+            // Pale back-edge border strip seen in back/45-degree views
+            const trimMat = new THREE.MeshStandardMaterial({ color: 0xe8ece0, roughness: 0.85 });
+            const backTrim = new THREE.Mesh(new THREE.BoxGeometry(grassW, grassH * 1.05, 0.006), trimMat);
+            backTrim.position.set(0, grassH / 2, -grassD / 2 + 0.003);
+            parkContentGroup.add(backTrim);
+
+            // 2. Curved Off-White Pathway (sweeps from mid-left to front-center to mid-right)
+            const pathMat = new THREE.MeshStandardMaterial({
+                color: 0xe6e4dc,
+                roughness: 0.82,
+                metalness: 0.02
+            });
+            const pathCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-grassW * 0.48, 0, grassD * 0.02),
+                new THREE.Vector3(-grassW * 0.28, 0, grassD * 0.24),
+                new THREE.Vector3(grassW * 0.04, 0, grassD * 0.29),
+                new THREE.Vector3(grassW * 0.30, 0, grassD * 0.16),
+                new THREE.Vector3(grassW * 0.49, 0, -grassD * 0.05)
+            ]);
+            const pathPoints = pathCurve.getPoints(32);
+            const pathHalfW = 0.017;
+            const pathShape = new THREE.Shape();
+            const leftPts = [];
+            const rightPts = [];
+            for (let i = 0; i < pathPoints.length; i++) {
+                const p = pathPoints[i];
+                const tangent = pathCurve.getTangent(i / (pathPoints.length - 1));
+                const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+                leftPts.push(new THREE.Vector2(p.x + normal.x * pathHalfW, -(p.z + normal.z * pathHalfW)));
+                rightPts.push(new THREE.Vector2(p.x - normal.x * pathHalfW, -(p.z - normal.z * pathHalfW)));
+            }
+            pathShape.moveTo(leftPts[0].x, leftPts[0].y);
+            for (let i = 1; i < leftPts.length; i++) pathShape.lineTo(leftPts[i].x, leftPts[i].y);
+            for (let i = rightPts.length - 1; i >= 0; i--) pathShape.lineTo(rightPts[i].x, rightPts[i].y);
+            pathShape.closePath();
+
+            const pathGeom = new THREE.ExtrudeGeometry(pathShape, { depth: 0.0025, bevelEnabled: false });
+            pathGeom.rotateX(-Math.PI / 2);
+            const pathMesh = new THREE.Mesh(pathGeom, pathMat);
+            pathMesh.position.y = grassH + 0.0005;
+            pathMesh.receiveShadow = true;
+            parkContentGroup.add(pathMesh);
+
+            // 3. Front-Left Purple Retaining Block with Pastel Pink Top
+            const blockW = grassW * 0.48;
+            const blockH = 0.036;
+            const blockD = 0.022;
+            const purpleSideMat = new THREE.MeshStandardMaterial({ color: 0x5c194e, roughness: 0.75 });
+            const pinkTopMat = new THREE.MeshStandardMaterial({ color: 0xf7cde5, roughness: 0.65 });
+            const blockMats = [purpleSideMat, purpleSideMat, pinkTopMat, purpleSideMat, purpleSideMat, purpleSideMat];
+            const purpleBlock = new THREE.Mesh(new THREE.BoxGeometry(blockW, blockH, blockD), blockMats);
+            purpleBlock.position.set(-grassW * 0.34, grassH - blockH / 2 + 0.004, grassD / 2 + blockD * 0.35);
+            purpleBlock.castShadow = true;
+            purpleBlock.receiveShadow = true;
+            parkContentGroup.add(purpleBlock);
+
+            // 4. Dark Mahogany Lamp Post with Overhanging Box Head
+            const lampMat = new THREE.MeshStandardMaterial({ color: 0x3b0d0c, roughness: 0.35, metalness: 0.15 });
+            const lampGroup = new THREE.Group();
+            const poleH = 0.145;
+            const poleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.011, poleH, 0.011), lampMat);
+            poleMesh.position.y = poleH / 2;
+            poleMesh.castShadow = true;
+            lampGroup.add(poleMesh);
+
+            const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.016, 0.018), lampMat);
+            headMesh.position.set(-0.009, poleH - 0.004, 0);
+            headMesh.castShadow = true;
+            lampGroup.add(headMesh);
+
+            const capMesh = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.006, 0.008), lampMat);
+            capMesh.position.set(-0.003, poleH + 0.006, 0);
+            lampGroup.add(capMesh);
+
+            lampGroup.position.set(grassW * 0.22, grassH, grassD * 0.24);
+            lampGroup.rotation.y = -0.45;
+            parkContentGroup.add(lampGroup);
+
+            // 5. Ribbed Green Trash Can beside the Lamp Post
+            const trashMat = new THREE.MeshStandardMaterial({ color: 0x244f21, roughness: 0.55, metalness: 0.35 });
+            const trashGroup = new THREE.Group();
+            const canBody = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.0082, 0.022, 14), trashMat);
+            canBody.position.y = 0.011;
+            canBody.castShadow = true;
+            trashGroup.add(canBody);
+
+            const rim1 = new THREE.Mesh(new THREE.TorusGeometry(0.0092, 0.0012, 8, 16), trashMat);
+            rim1.rotation.x = Math.PI / 2;
+            rim1.position.y = 0.020;
+            trashGroup.add(rim1);
+
+            const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.0088, 0.001, 8, 16), trashMat);
+            rim2.rotation.x = Math.PI / 2;
+            rim2.position.y = 0.009;
+            trashGroup.add(rim2);
+
+            trashGroup.position.set(grassW * 0.14, grassH, grassD * 0.19);
+            parkContentGroup.add(trashGroup);
+
+            // 6. Purple Disc Golf Basket Target (nestled near the trees)
+            const basketGroup = new THREE.Group();
+            basketGroup.name = 'disc-golf-basket';
+            const basketPurpleMat = new THREE.MeshStandardMaterial({ color: 0x7a52d4, roughness: 0.4, metalness: 0.25 });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0xbfc7cf, roughness: 0.35, metalness: 0.8 });
+
+            const bPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, 0.042, 8), metalMat);
+            bPole.position.y = 0.021;
+            basketGroup.add(bPole);
+
+            const bCage = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.009, 0.008, 12, 1, true), metalMat);
+            bCage.position.y = 0.018;
+            basketGroup.add(bCage);
+
+            const bTopBand = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.0045, 14), basketPurpleMat);
+            bTopBand.position.y = 0.041;
+            bTopBand.castShadow = true;
+            basketGroup.add(bTopBand);
+
+            // Hanging chains
+            for (let i = 0; i < 8; i++) {
+                const ang = (i / 8) * Math.PI * 2;
+                const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.0005, 0.0005, 0.022, 4), metalMat);
+                chain.position.set(Math.cos(ang) * 0.007, 0.029, Math.sin(ang) * 0.007);
+                basketGroup.add(chain);
+            }
+
+            basketGroup.position.set(-grassW * 0.16, grassH, grassD * 0.01);
+            parkContentGroup.add(basketGroup);
+
+            // 7. Three Olive-Green Branched Trees with Clustered Dusty-Pink Leaf-Card Canopies
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3f5422, roughness: 0.88, metalness: 0.02 });
+            const treesGroup = new THREE.Group();
+
+            // Tree 1 (Tallest, back-left)
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.042, grassH, -0.078),
+                new THREE.Vector3(-0.044, grassH + 0.11, -0.075),
+                new THREE.Vector3(-0.046, grassH + 0.24, -0.072),
+                new THREE.Vector3(-0.042, grassH + 0.33, -0.068)
+            ], 0.015, 0.0045, trunkMat));
+
+            // Tree 1 upper fork branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.045, grassH + 0.22, -0.073),
+                new THREE.Vector3(-0.022, grassH + 0.26, -0.060),
+                new THREE.Vector3(-0.008, grassH + 0.31, -0.052)
+            ], 0.0075, 0.003, trunkMat));
+
+            // Tree 1 lower side branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(-0.043, grassH + 0.10, -0.074),
+                new THREE.Vector3(-0.018, grassH + 0.13, -0.036),
+                new THREE.Vector3(-0.004, grassH + 0.165, -0.012)
+            ], 0.0085, 0.0035, trunkMat));
+
+            // Tree 2 (Medium, center-right)
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.012, grassH, -0.048),
+                new THREE.Vector3(0.014, grassH + 0.09, -0.046),
+                new THREE.Vector3(0.016, grassH + 0.19, -0.044)
+            ], 0.0125, 0.004, trunkMat));
+
+            // Tree 2 right branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.014, grassH + 0.11, -0.046),
+                new THREE.Vector3(0.038, grassH + 0.145, -0.030),
+                new THREE.Vector3(0.050, grassH + 0.175, -0.022)
+            ], 0.006, 0.0025, trunkMat));
+
+            // Tree 2 front-left branch
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.013, grassH + 0.095, -0.045),
+                new THREE.Vector3(-0.015, grassH + 0.125, -0.018),
+                new THREE.Vector3(-0.036, grassH + 0.15, 0.004)
+            ], 0.006, 0.0025, trunkMat));
+
+            // Tree 3 (Slender sapling, back-right)
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.056, grassH, -0.068),
+                new THREE.Vector3(0.057, grassH + 0.075, -0.066),
+                new THREE.Vector3(0.058, grassH + 0.155, -0.064)
+            ], 0.0042, 0.0018, trunkMat));
+
+            treesGroup.add(createBranchTube([
+                new THREE.Vector3(0.057, grassH + 0.068, -0.066),
+                new THREE.Vector3(0.074, grassH + 0.095, -0.058)
+            ], 0.0022, 0.001, trunkMat));
+
+            // Leaf-Card Canopy Clusters
+            const canopyClusters = [
+                { x: -0.042, y: grassH + 0.345, z: -0.068, radius: 0.046, count: 165 },
+                { x: -0.006, y: grassH + 0.315, z: -0.050, radius: 0.040, count: 140 },
+                { x: -0.024, y: grassH + 0.285, z: -0.058, radius: 0.034, count: 100 },
+                { x: 0.018, y: grassH + 0.210, z: -0.044, radius: 0.042, count: 145 },
+                { x: 0.052, y: grassH + 0.185, z: -0.022, radius: 0.038, count: 130 },
+                { x: -0.038, y: grassH + 0.165, z: 0.005, radius: 0.038, count: 130 },
+                { x: -0.004, y: grassH + 0.175, z: -0.010, radius: 0.032, count: 95 },
+                { x: 0.058, y: grassH + 0.160, z: -0.064, radius: 0.022, count: 65 },
+                { x: 0.075, y: grassH + 0.098, z: -0.057, radius: 0.012, count: 35 }
+            ];
             addLeafCluster(treesGroup, canopyClusters);
+            parkContentGroup.add(treesGroup);
 
             // Scale and recess the 3D park deeply inside the portal cavity behind the z = 0 opening
             parkContentGroup.scale.setScalar(0.80);
             parkContentGroup.position.set(0.008, 0.006, -0.185);
             parkContentGroup.traverse((child) => {
                 if (child.isMesh) {
-                    child.renderOrder = 1; // Render inside the cavity after the occluder and inner walls
+                    child.renderOrder = 1;
                 }
             });
             targetTemplateMesh.add(parkContentGroup);
 
-            // 8. Recessed Portal Cavity & Invisible Depth-Occluder Box (Hole-in-the-Wall Depth Illusion)
-            // Front opening matches the 8.5" x 11" scannable reticle footprint.
-            const portalW = DIORAMA_WIDTH_M;  // 0.2159m front opening width
-            const portalH = DIORAMA_DEPTH_M;  // 0.2794m front opening height
-            const centerY = portalH / 2;      // 0.1397m vertical center of front opening
+            // 8. Recessed Light-Blue Portal Cavity & Invisible Depth-Occluder Box
+            const portalW = DIORAMA_WIDTH_M;
+            const portalH = DIORAMA_DEPTH_M;
+            const centerY = portalH / 2;
 
-            // Recessed interior chamber is slightly wider & taller behind the opening so edges naturally occlude the park
             const chamberW = 0.28;
             const chamberH = 0.36;
             const chamberDepth = 0.34;
@@ -504,7 +841,6 @@
             const chamberCenterY = (chamberMinY + chamberMaxY) / 2;
 
             // --- A. Invisible Outer Depth-Occluder Shell (renderOrder = -2) ---
-            // Writes to depth buffer without drawing color so everything outside the front opening stays hidden
             const occluderMat = new THREE.MeshBasicMaterial({
                 colorWrite: false,
                 depthWrite: true,
@@ -514,7 +850,6 @@
             const occluderGroup = new THREE.Group();
             occluderGroup.name = 'occluder-box-group';
 
-            // 5 outward-facing exterior walls sealing the recessed chamber from side, top, bottom, and rear angles
             const backWall = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), occluderMat);
             backWall.rotation.y = Math.PI;
             backWall.position.set(0, chamberCenterY, -chamberDepth);
@@ -540,7 +875,7 @@
             bottomWall.position.set(0, chamberMinY, -chamberDepth / 2);
             occluderGroup.add(bottomWall);
 
-            // Front Mask Flange on the z = 0 scannable image plane with the 8.5" x 11" opening cutout
+            // Front Mask Flange on z = 0 with the 8.5" x 11" opening cutout
             const outerExtent = 2.0;
             const halfPW = portalW / 2;
             const minPY = 0;
@@ -572,9 +907,7 @@
             });
             targetTemplateMesh.add(occluderGroup);
 
-            // --- B. Recessed Interior Chamber Backdrop & Shadowed Opening Rim (renderOrder = 0) ---
-            // Replaces the live camera feed inside the opening with a light blue recessed cavity so the park
-            // clearly lives *within* the scannable image rather than floating on top of it.
+            // --- B. Recessed Light-Blue Interior Portal Cavity & Dark Entrance Collar (renderOrder = 0) ---
             const cavityGroup = new THREE.Group();
             cavityGroup.name = 'portal-cavity-group';
 
@@ -583,7 +916,6 @@
             const innerFloorMat = new THREE.MeshStandardMaterial({ color: 0x96cbe0, roughness: 0.9, side: THREE.FrontSide });
             const rimShadowMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9, side: THREE.FrontSide });
 
-            // Inward-facing interior light blue walls (slightly inset from the outer occluder walls)
             const innerBack = new THREE.Mesh(new THREE.PlaneGeometry(chamberW, chamberH), innerWallMat);
             innerBack.position.set(0, chamberCenterY, -chamberDepth + 0.002);
             cavityGroup.add(innerBack);
@@ -608,7 +940,7 @@
             innerBottom.position.set(0, chamberMinY + 0.002, -chamberDepth / 2);
             cavityGroup.add(innerBottom);
 
-            // Recessed dark entrance collar (2.2cm deep) right inside the z = 0 opening for crisp wall-thickness depth cues
+            // Recessed 2.2cm dark entrance collar inside z = 0 opening
             const collarDepth = 0.022;
             const collarLeft = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
             collarLeft.rotation.y = Math.PI / 2;
@@ -639,19 +971,42 @@
         }
 
         function buildFrisbeeMesh() {
-// ... existing code ... -->
+            // Blender-style LatheGeometry glossy 3D frisbee
+            const points = [
+                new THREE.Vector2(0.0, 0.011),
+                new THREE.Vector2(0.025, 0.0105),
+                new THREE.Vector2(0.055, 0.008),
+                new THREE.Vector2(0.072, 0.003),
+                new THREE.Vector2(0.078, -0.006),
+                new THREE.Vector2(0.074, -0.010),
+                new THREE.Vector2(0.068, -0.007),
+                new THREE.Vector2(0.062, 0.002),
+                new THREE.Vector2(0.030, 0.005),
+                new THREE.Vector2(0.0, 0.006)
+            ];
+            const geom = new THREE.LatheGeometry(points, 32);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xff3b5c,
+                roughness: 0.22,
+                metalness: 0.15
+            });
+            frisbeeMesh = new THREE.Mesh(geom, mat);
+            frisbeeMesh.castShadow = true;
+            frisbeeMesh.visible = false;
+            frisbeeMesh.renderOrder = 2;
+            scene.add(frisbeeMesh);
+        }
+
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
-            // Spawn the 3D park environment recessed inside its occluder box on the scanned reticle ~3 feet away
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // Exactly 3 feet away
-            scanPos.y -= DIORAMA_DEPTH_M / 2; // Center the 8.5" x 11" front opening directly on the scanned reticle
+            const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // 3 feet away
+            scanPos.y -= DIORAMA_DEPTH_M / 2; // Center the 8.5" x 11" front opening on the reticle
 
             const targetClone = targetTemplateMesh.clone();
             targetClone.position.copy(scanPos);
 
-            // Keep diorama upright (trees vertical) while rotating horizontally to face the player's front view
             const toCamX = camera.position.x - scanPos.x;
             const toCamZ = camera.position.z - scanPos.z;
             targetClone.rotation.set(0, Math.atan2(toCamX, toCamZ), 0);
@@ -662,8 +1017,147 @@
             activeTargets.push(targetClone);
             currentTarget = targetClone;
         }
-// ... existing code ... -->
-            // Apply Visual-Inertial Tracking to Camera + Subtle Parallax Shift for Depth Illusion
+
+        function randomizeTargetLine() {
+            targetPower = 20 + Math.random() * 60; // Between 20% and 80%
+            const targetLine = document.getElementById('target-line');
+            if (targetLine) {
+                targetLine.style.left = `${targetPower}%`;
+            }
+        }
+
+        function updatePowerBarUI() {
+            const fill = document.getElementById('power-fill');
+            if (fill) {
+                fill.style.width = `${currentPower}%`;
+            }
+        }
+
+        function startCharging() {
+            if (!isGameActive || isScanningMarker || isGameOver || frisbeeActive) return;
+            isCharging = true;
+            currentPower = 0;
+            powerDirection = 1;
+            updatePowerBarUI();
+        }
+
+        function releaseThrow() {
+            if (!isCharging) return;
+            isCharging = false;
+
+            const diff = Math.abs(currentPower - targetPower);
+            const isPerfect = diff <= tolerance;
+            throwFrisbee(isPerfect);
+
+            currentPower = 0;
+            updatePowerBarUI();
+        }
+
+        function throwFrisbee(isHit) {
+            if (!frisbeeMesh || !camera) return;
+
+            const startPos = camera.position.clone();
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const down = new THREE.Vector3(0, -1, 0).applyQuaternion(camera.quaternion);
+            startPos.addScaledVector(forward, 0.25).addScaledVector(down, 0.14);
+
+            frisbeeMesh.position.copy(startPos);
+            frisbeeMesh.rotation.set(0.15, 0, 0);
+            frisbeeMesh.visible = true;
+            frisbeeActive = true;
+            frisbeeFlightTime = 0;
+            frisbeeWillHit = isHit;
+
+            // Aim straight at the purple disc golf basket inside the portal if hit, else veer wide
+            if (currentTarget) {
+                const basket = currentTarget.getObjectByName('disc-golf-basket');
+                if (basket) {
+                    basket.getWorldPosition(frisbeeTargetPoint);
+                    frisbeeTargetPoint.y += 0.025;
+                } else {
+                    frisbeeTargetPoint.copy(currentTarget.position);
+                    frisbeeTargetPoint.y += DIORAMA_DEPTH_M * 0.45;
+                }
+            } else {
+                frisbeeTargetPoint.copy(camera.position).addScaledVector(forward, 1.2);
+            }
+
+            if (!isHit) {
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                const missSide = Math.random() > 0.5 ? 1 : -1;
+                frisbeeTargetPoint.addScaledVector(right, missSide * 0.35);
+                frisbeeTargetPoint.y += (Math.random() - 0.3) * 0.25;
+            }
+
+            const flightDir = new THREE.Vector3().subVectors(frisbeeTargetPoint, startPos).normalize();
+            frisbeeVelocity.copy(flightDir).multiplyScalar(2.6);
+        }
+
+        function showScorePopup() {
+            const popup = document.getElementById('score-popup');
+            if (!popup) return;
+            popup.style.display = 'block';
+            popup.style.opacity = '1';
+            popup.style.transform = 'translate(-50%, -50%) scale(1)';
+
+            requestAnimationFrame(() => {
+                popup.style.transform = 'translate(-50%, -130%) scale(1.15)';
+                popup.style.opacity = '0';
+            });
+
+            setTimeout(() => {
+                popup.style.display = 'none';
+            }, 650);
+        }
+
+        function handleMiss() {
+            misses++;
+            if (misses >= 20) {
+                isGameOver = true;
+                const overlay = document.getElementById('continue-overlay');
+                if (overlay) {
+                    overlay.style.display = 'flex';
+                }
+            }
+        }
+
+        function continueGame(e) {
+            if (e) e.stopPropagation();
+            misses = 0;
+            isGameOver = false;
+            const overlay = document.getElementById('continue-overlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+            randomizeTargetLine();
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            const dt = Math.min((now - lastTime) / 1000, 0.05);
+            lastTime = now;
+
+            // Update Power Slider Charge
+            if (isCharging) {
+                currentPower += powerDirection * chargeSpeed * dt;
+                if (currentPower >= 100) {
+                    currentPower = 100;
+                    powerDirection = -1;
+                } else if (currentPower <= 0) {
+                    currentPower = 0;
+                    powerDirection = 1;
+                }
+                updatePowerBarUI();
+            }
+
+            // Visual-Inertial Tracking + Subtle Parallax Shift for Recessed Depth Illusion
             if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
                 controls.update();
                 if (currentTarget) {
@@ -674,16 +1168,130 @@
                     camera.position.x = THREE.MathUtils.lerp(camera.position.x, parallaxX, 0.12);
                     camera.position.y = THREE.MathUtils.lerp(camera.position.y, 1.4 + parallaxY, 0.12);
                 }
-            }
-
-            // Update 3D Frisbee Flight & Check Collisions
-// ... existing code ... -->
-            if (!controls || !controls.deviceOrientation || controls.deviceOrientation.alpha === null) {
+            } else if (camera) {
                 camera.rotation.y = cameraYaw;
                 camera.rotation.x = cameraPitch;
-                // Add desktop parallax shift so dragging lets you peer inside the recessed portal cavity
                 camera.position.x = -Math.sin(cameraYaw) * 0.32;
                 camera.position.y = 1.4 + Math.sin(cameraPitch) * 0.22;
             }
+
+            // Update 3D Frisbee Flight & Scoring
+            if (frisbeeActive && frisbeeMesh) {
+                frisbeeFlightTime += dt;
+                frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
+                frisbeeMesh.rotation.y += 18 * dt;
+
+                const distToTarget = frisbeeMesh.position.distanceTo(frisbeeTargetPoint);
+                if (frisbeeWillHit && distToTarget < 0.09) {
+                    frisbeeActive = false;
+                    frisbeeMesh.visible = false;
+                    score++;
+                    showScorePopup();
+                    randomizeTargetLine();
+                } else if (frisbeeFlightTime > 0.9) {
+                    frisbeeActive = false;
+                    frisbeeMesh.visible = false;
+                    if (frisbeeWillHit) {
+                        score++;
+                        showScorePopup();
+                        randomizeTargetLine();
+                    } else {
+                        handleMiss();
+                    }
+                }
+            }
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
         }
-// ... existing code ... -->
+
+        // Bind Mobile-Safe Button & Gameplay Input Listeners once DOM is ready
+        window.addEventListener('DOMContentLoaded', () => {
+            const scanBtn = document.getElementById('scan-btn');
+            const continueBtn = document.getElementById('continue-btn');
+            const scannerFrame = document.getElementById('scanner-frame');
+
+            if (scanBtn) {
+                scanBtn.addEventListener('click', startGame);
+                scanBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    startGame(e);
+                }, { passive: false });
+            }
+
+            if (continueBtn) {
+                continueBtn.addEventListener('click', continueGame);
+                continueBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    continueGame(e);
+                }, { passive: false });
+            }
+
+            if (scannerFrame) {
+                scannerFrame.addEventListener('click', finishScanningAndSpawn);
+                scannerFrame.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    finishScanningAndSpawn();
+                }, { passive: false });
+            }
+
+            // Touch Controls for Charging & Throwing Frisbee (only active after scanning finishes)
+            window.addEventListener('touchstart', (e) => {
+                if (!isGameActive || isScanningMarker || isGameOver) return;
+                if (e.target.closest('button')) return;
+                isPointerDown = true;
+                lastPointerPos.x = e.touches[0].clientX;
+                lastPointerPos.y = e.touches[0].clientY;
+                startCharging();
+            }, { passive: true });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!isPointerDown || !isGameActive || isScanningMarker || isGameOver) return;
+                if (!controls || !controls.deviceOrientation || controls.deviceOrientation.alpha === null) {
+                    const dx = e.touches[0].clientX - lastPointerPos.x;
+                    const dy = e.touches[0].clientY - lastPointerPos.y;
+                    cameraYaw = THREE.MathUtils.clamp(cameraYaw - dx * 0.004, -0.7, 0.7);
+                    cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.004, -0.45, 0.45);
+                    lastPointerPos.x = e.touches[0].clientX;
+                    lastPointerPos.y = e.touches[0].clientY;
+                }
+            }, { passive: true });
+
+            window.addEventListener('touchend', (e) => {
+                if (!isPointerDown) return;
+                isPointerDown = false;
+                if (!isGameActive || isScanningMarker || isGameOver) return;
+                releaseThrow();
+            }, { passive: true });
+
+            // Mouse Controls for Desktop Testing
+            window.addEventListener('mousedown', (e) => {
+                if (!isGameActive || isScanningMarker || isGameOver) return;
+                if (e.target.closest('button')) return;
+                isPointerDown = true;
+                lastPointerPos.x = e.clientX;
+                lastPointerPos.y = e.clientY;
+                startCharging();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isPointerDown || !isGameActive || isScanningMarker || isGameOver) return;
+                const dx = e.clientX - lastPointerPos.x;
+                const dy = e.clientY - lastPointerPos.y;
+                cameraYaw = THREE.MathUtils.clamp(cameraYaw - dx * 0.004, -0.7, 0.7);
+                cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.004, -0.45, 0.45);
+                lastPointerPos.x = e.clientX;
+                lastPointerPos.y = e.clientY;
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (!isPointerDown) return;
+                isPointerDown = false;
+                if (!isGameActive || isScanningMarker || isGameOver) return;
+                releaseThrow();
+            });
+        });
+    </script>
+</body>
+</html>
