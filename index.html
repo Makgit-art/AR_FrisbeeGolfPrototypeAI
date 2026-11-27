@@ -284,6 +284,17 @@
         // 3D Park Diorama Dimensions (8.5" x 11" footprint in meters)
         const DIORAMA_WIDTH_M = 0.2159;  // 8.5 inches
         const DIORAMA_DEPTH_M = 0.2794;  // 11.0 inches
+        const INITIAL_ANCHOR_DIST = 0.9144; // 3 feet initial distance
+
+        // World-Space Anchor & Visual Proximity Tracking Variables
+        let anchorWorldCenter = null;
+        let anchorNormal = new THREE.Vector3(0, 0, 1);
+        let currentCameraDist = INITIAL_ANCHOR_DIST;
+        let targetCameraDist = INITIAL_ANCHOR_DIST;
+        let referenceReticleRadius = null;
+        let lastTrackTime = 0;
+        let trackCanvas = null;
+        let trackCtx = null;
 
         // 3D Frisbee Variables
         let frisbeeMesh = null;
@@ -658,15 +669,15 @@
             pathMesh.receiveShadow = true;
             parkContentGroup.add(pathMesh);
 
-            // 3. Front-Left Purple Retaining Block with Pastel Pink Top
-            const blockW = grassW * 0.48;
-            const blockH = 0.036;
-            const blockD = 0.022;
+            // 3. Front-Left Purple Retaining Block with Pastel Pink Top (tucked flush inside grass footprint)
+            const blockW = grassW * 0.44;
+            const blockH = 0.024;
+            const blockD = 0.020;
             const purpleSideMat = new THREE.MeshStandardMaterial({ color: 0x5c194e, roughness: 0.75 });
             const pinkTopMat = new THREE.MeshStandardMaterial({ color: 0xf7cde5, roughness: 0.65 });
             const blockMats = [purpleSideMat, purpleSideMat, pinkTopMat, purpleSideMat, purpleSideMat, purpleSideMat];
             const purpleBlock = new THREE.Mesh(new THREE.BoxGeometry(blockW, blockH, blockD), blockMats);
-            purpleBlock.position.set(-grassW * 0.34, grassH - blockH / 2 + 0.004, grassD / 2 + blockD * 0.35);
+            purpleBlock.position.set(-grassW / 2 + blockW / 2 + 0.002, blockH / 2 + 0.001, grassD / 2 - blockD / 2 - 0.002);
             purpleBlock.castShadow = true;
             purpleBlock.receiveShadow = true;
             parkContentGroup.add(purpleBlock);
@@ -816,11 +827,24 @@
                 { x: 0.075, y: grassH + 0.098, z: -0.057, radius: 0.012, count: 35 }
             ];
             addLeafCluster(treesGroup, canopyClusters);
+            // Scale tree height cleanly so the tallest canopy fits comfortably beneath the cavity ceiling
+            treesGroup.scale.set(1, 0.62, 1);
+            treesGroup.position.y = grassH * (1 - 0.62);
             parkContentGroup.add(treesGroup);
 
-            // Scale and recess the 3D park deeply inside the portal cavity behind the z = 0 opening
-            parkContentGroup.scale.setScalar(0.80);
-            parkContentGroup.position.set(0.008, 0.006, -0.185);
+            // Fit the 3D park base 1:1 inside the cavity floor (exact same width and depth)
+            const portalW = DIORAMA_WIDTH_M;
+            const portalH = DIORAMA_DEPTH_M;
+            const chamberW = DIORAMA_WIDTH_M;
+            const chamberH = DIORAMA_DEPTH_M;
+            const chamberDepth = DIORAMA_DEPTH_M;
+            const chamberMinY = 0;
+            const chamberMaxY = chamberH;
+            const centerY = portalH / 2;
+            const chamberCenterY = chamberH / 2;
+
+            parkContentGroup.scale.set(1, 1, 1);
+            parkContentGroup.position.set(0, 0.002, -chamberDepth / 2);
             parkContentGroup.traverse((child) => {
                 if (child.isMesh) {
                     child.renderOrder = 1;
@@ -828,17 +852,7 @@
             });
             targetTemplateMesh.add(parkContentGroup);
 
-            // 8. Recessed Light-Blue Portal Cavity & Invisible Depth-Occluder Box
-            const portalW = DIORAMA_WIDTH_M;
-            const portalH = DIORAMA_DEPTH_M;
-            const centerY = portalH / 2;
-
-            const chamberW = 0.28;
-            const chamberH = 0.36;
-            const chamberDepth = 0.34;
-            const chamberMinY = -0.025;
-            const chamberMaxY = chamberMinY + chamberH;
-            const chamberCenterY = (chamberMinY + chamberMaxY) / 2;
+            // 8. Recessed Light-Blue Portal Cavity & Invisible Depth-Occluder Box (exact 3D environment bounds)
 
             // --- A. Invisible Outer Depth-Occluder Shell (renderOrder = -2) ---
             const occluderMat = new THREE.MeshBasicMaterial({
@@ -940,26 +954,26 @@
             innerBottom.position.set(0, chamberMinY + 0.002, -chamberDepth / 2);
             cavityGroup.add(innerBottom);
 
-            // Recessed 2.2cm dark entrance collar inside z = 0 opening
-            const collarDepth = 0.022;
+            // Recessed 1.4cm dark entrance collar inside z = 0 opening
+            const collarDepth = 0.014;
             const collarLeft = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
             collarLeft.rotation.y = Math.PI / 2;
-            collarLeft.position.set(-halfPW, centerY, -collarDepth / 2);
+            collarLeft.position.set(-halfPW + 0.001, centerY, -collarDepth / 2);
             cavityGroup.add(collarLeft);
 
             const collarRight = new THREE.Mesh(new THREE.PlaneGeometry(collarDepth, portalH), rimShadowMat);
             collarRight.rotation.y = -Math.PI / 2;
-            collarRight.position.set(halfPW, centerY, -collarDepth / 2);
+            collarRight.position.set(halfPW - 0.001, centerY, -collarDepth / 2);
             cavityGroup.add(collarRight);
 
             const collarTop = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
             collarTop.rotation.x = Math.PI / 2;
-            collarTop.position.set(0, maxPY, -collarDepth / 2);
+            collarTop.position.set(0, maxPY - 0.001, -collarDepth / 2);
             cavityGroup.add(collarTop);
 
             const collarBottom = new THREE.Mesh(new THREE.PlaneGeometry(portalW, collarDepth), rimShadowMat);
             collarBottom.rotation.x = -Math.PI / 2;
-            collarBottom.position.set(0, minPY, -collarDepth / 2);
+            collarBottom.position.set(0, minPY + 0.001, -collarDepth / 2);
             cavityGroup.add(collarBottom);
 
             cavityGroup.traverse((child) => {
@@ -997,11 +1011,89 @@
             scene.add(frisbeeMesh);
         }
 
+        // Measure the apparent radius of the dark circular scannable reticle in the live camera feed
+        function measureReticleRadiusAt(normX, normY) {
+            const video = document.getElementById('camera-feed');
+            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+
+            if (!trackCanvas) {
+                trackCanvas = document.createElement('canvas');
+                trackCanvas.width = 128;
+                trackCanvas.height = 96;
+                trackCtx = trackCanvas.getContext('2d', { willReadFrequently: true });
+            }
+
+            const w = trackCanvas.width;
+            const h = trackCanvas.height;
+            trackCtx.drawImage(video, 0, 0, w, h);
+
+            const cx = Math.round(THREE.MathUtils.clamp(normX, 0.1, 0.9) * w);
+            const cy = Math.round(THREE.MathUtils.clamp(normY, 0.1, 0.9) * h);
+            const searchR = Math.round(Math.min(w, h) * 0.34);
+
+            const x0 = Math.max(0, cx - searchR);
+            const y0 = Math.max(0, cy - searchR);
+            const x1 = Math.min(w - 1, cx + searchR);
+            const y1 = Math.min(h - 1, cy + searchR);
+
+            const imgData = trackCtx.getImageData(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+            const data = imgData.data;
+            const boxW = x1 - x0 + 1;
+            const boxH = y1 - y0 + 1;
+
+            // Compute local luminance mean and min to adapt to mobile lighting
+            let lumSum = 0;
+            let lumMin = 255;
+            const totalPx = boxW * boxH;
+            for (let i = 0; i < data.length; i += 4) {
+                const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                lumSum += lum;
+                if (lum < lumMin) lumMin = lum;
+            }
+            const lumMean = lumSum / totalPx;
+            const darkThreshold = lumMin + (lumMean - lumMin) * 0.42;
+
+            // Only accept if there is enough contrast (dark circle against lighter ring/background)
+            if (lumMean - lumMin < 28) return null;
+
+            let darkCount = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                if (lum <= darkThreshold) {
+                    darkCount++;
+                }
+            }
+
+            if (darkCount < 18 || darkCount > totalPx * 0.78) return null;
+            return Math.sqrt(darkCount / Math.PI);
+        }
+
+        function updateProximityFromCameraFeed(now) {
+            if (!currentTarget || !anchorWorldCenter || !referenceReticleRadius) return;
+            if (now - lastTrackTime < 66) return; // ~15Hz lightweight tracking
+            lastTrackTime = now;
+
+            // Project the anchored reticle center into normalized screen coordinates
+            const projected = anchorWorldCenter.clone().project(camera);
+            if (projected.z > 1 || Math.abs(projected.x) > 0.85 || Math.abs(projected.y) > 0.85) {
+                return; // Reticle is outside the camera view; hold fixed world position
+            }
+
+            const normX = (projected.x + 1) * 0.5;
+            const normY = (1 - projected.y) * 0.5;
+            const detectedRadius = measureReticleRadiusAt(normX, normY);
+            if (!detectedRadius) return;
+
+            // Pinhole scale law: closer reticle = larger radius = smaller camera distance
+            const estimatedDist = INITIAL_ANCHOR_DIST * (referenceReticleRadius / detectedRadius);
+            targetCameraDist = THREE.MathUtils.clamp(estimatedDist, 0.30, 2.20);
+        }
+
         function spawnTargetOnReticle() {
             if (!targetTemplateMesh || activeTargets.length >= 1) return;
 
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const scanPos = camera.position.clone().addScaledVector(forward, 0.9144); // 3 feet away
+            const scanPos = camera.position.clone().addScaledVector(forward, INITIAL_ANCHOR_DIST);
             scanPos.y -= DIORAMA_DEPTH_M / 2; // Center the 8.5" x 11" front opening on the reticle
 
             const targetClone = targetTemplateMesh.clone();
@@ -1012,6 +1104,14 @@
             targetClone.rotation.set(0, Math.atan2(toCamX, toCamZ), 0);
 
             targetClone.userData.hitsRemaining = 3;
+
+            // Lock world-space anchor and capture reference reticle size for proximity tracking
+            anchorWorldCenter = scanPos.clone();
+            anchorWorldCenter.y += DIORAMA_DEPTH_M / 2;
+            anchorNormal.set(toCamX, 0, toCamZ).normalize();
+            currentCameraDist = INITIAL_ANCHOR_DIST;
+            targetCameraDist = INITIAL_ANCHOR_DIST;
+            referenceReticleRadius = measureReticleRadiusAt(0.5, 0.5);
 
             scene.add(targetClone);
             activeTargets.push(targetClone);
@@ -1157,22 +1257,20 @@
                 updatePowerBarUI();
             }
 
-            // Visual-Inertial Tracking + Subtle Parallax Shift for Recessed Depth Illusion
+            // Visual-Inertial Orientation + World-Anchored Proximity Tracking (no camera-follow drift)
             if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
                 controls.update();
-                if (currentTarget) {
-                    const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    const toTarget = new THREE.Vector3().subVectors(currentTarget.position, new THREE.Vector3(0, 1.4, 0)).normalize();
-                    const parallaxX = THREE.MathUtils.clamp((lookDir.x - toTarget.x) * 0.25, -0.16, 0.16);
-                    const parallaxY = THREE.MathUtils.clamp((lookDir.y - toTarget.y) * 0.20, -0.12, 0.12);
-                    camera.position.x = THREE.MathUtils.lerp(camera.position.x, parallaxX, 0.12);
-                    camera.position.y = THREE.MathUtils.lerp(camera.position.y, 1.4 + parallaxY, 0.12);
-                }
             } else if (camera) {
                 camera.rotation.y = cameraYaw;
                 camera.rotation.x = cameraPitch;
-                camera.position.x = -Math.sin(cameraYaw) * 0.32;
-                camera.position.y = 1.4 + Math.sin(cameraPitch) * 0.22;
+            }
+
+            if (currentTarget && anchorWorldCenter) {
+                updateProximityFromCameraFeed(now);
+                currentCameraDist = THREE.MathUtils.lerp(currentCameraDist, targetCameraDist, 0.14);
+                camera.position.x = anchorWorldCenter.x + anchorNormal.x * currentCameraDist;
+                camera.position.z = anchorWorldCenter.z + anchorNormal.z * currentCameraDist;
+                camera.position.y = anchorWorldCenter.y;
             }
 
             // Update 3D Frisbee Flight & Scoring
@@ -1291,6 +1389,12 @@
                 if (!isGameActive || isScanningMarker || isGameOver) return;
                 releaseThrow();
             });
+
+            // Desktop scroll-wheel proximity test
+            window.addEventListener('wheel', (e) => {
+                if (!isGameActive || !currentTarget) return;
+                targetCameraDist = THREE.MathUtils.clamp(targetCameraDist + e.deltaY * 0.001, 0.30, 2.20);
+            }, { passive: true });
         });
     </script>
 </body>
