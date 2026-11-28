@@ -288,9 +288,6 @@
 
         // World-Space Anchor & Visual Reticle Tracking Variables
         let anchorQuaternion = new THREE.Quaternion();
-        let currentAnchorDist = INITIAL_ANCHOR_DIST;
-        let targetAnchorDist = INITIAL_ANCHOR_DIST;
-        let referenceReticleRadius = null;
         let lastTrackTime = 0;
         let lostTrackFrames = 0;
         let trackCanvas = null;
@@ -1080,21 +1077,13 @@
 
             lostTrackFrames = 0;
 
-            if (!referenceReticleRadius) {
-                referenceReticleRadius = det.radiusNorm;
-            }
-
-            // Pinhole scale law: apparent reticle size controls depth distance along the camera ray
-            const estimatedDist = INITIAL_ANCHOR_DIST * (referenceReticleRadius / det.radiusNorm);
-            targetAnchorDist = THREE.MathUtils.clamp(estimatedDist, 0.28, 2.40);
-            currentAnchorDist = THREE.MathUtils.lerp(currentAnchorDist, targetAnchorDist, 0.22);
-
-            // Unproject detected reticle center (normX, normY) into 3D world space along the current camera ray
+            // Unproject detected reticle center (normX, normY) at a fixed distance
+            // so changing camera proximity to the reticle never zooms the portal in or out
             trackNdc.set(det.normX * 2 - 1, 1 - det.normY * 2);
             trackRaycaster.setFromCamera(trackNdc, camera);
             const desiredWorldPos = trackRaycaster.ray.origin
                 .clone()
-                .addScaledVector(trackRaycaster.ray.direction, currentAnchorDist);
+                .addScaledVector(trackRaycaster.ray.direction, INITIAL_ANCHOR_DIST);
 
             // Anchor the 3D environment & occluder box center to the reticle while keeping world orientation fixed
             currentTarget.position.lerp(desiredWorldPos, 0.65);
@@ -1102,18 +1091,15 @@
             maintainPortalScale(currentTarget);
         }
 
-        // Maintain the doubled scale of the 3D environment and occluder box no matter how the camera moves
+        // Maintain a fixed distance and doubled scale so the 3D environment and occluder box never zoom in or out
         function maintainPortalScale(target) {
             if (!target || !camera) return;
-            const currentDist = camera.position.distanceTo(target.position);
-            if (currentDist <= 0.001) return;
-
-            const maintainedScale = THREE.MathUtils.clamp(
-                PORTAL_BASE_SCALE * (currentDist / INITIAL_ANCHOR_DIST),
-                PORTAL_BASE_SCALE * 0.25,
-                PORTAL_BASE_SCALE * 4.0
-            );
-            target.scale.setScalar(maintainedScale);
+            const dirFromCam = new THREE.Vector3().subVectors(target.position, camera.position);
+            if (dirFromCam.lengthSq() > 0.000001) {
+                dirFromCam.normalize();
+                target.position.copy(camera.position).addScaledVector(dirFromCam, INITIAL_ANCHOR_DIST);
+            }
+            target.scale.setScalar(PORTAL_BASE_SCALE);
         }
 
         function spawnTargetOnReticle() {
@@ -1124,7 +1110,6 @@
             const initialDet = detectReticleInFrame(0.5, 0.5, 0.35);
             const spawnNormX = initialDet ? initialDet.normX : 0.5;
             const spawnNormY = initialDet ? initialDet.normY : 0.5;
-            referenceReticleRadius = initialDet ? initialDet.radiusNorm : null;
 
             trackNdc.set(spawnNormX * 2 - 1, 1 - spawnNormY * 2);
             trackRaycaster.setFromCamera(trackNdc, camera);
@@ -1146,8 +1131,6 @@
             maintainPortalScale(targetClone);
 
             targetClone.userData.hitsRemaining = 3;
-            currentAnchorDist = INITIAL_ANCHOR_DIST;
-            targetAnchorDist = INITIAL_ANCHOR_DIST;
 
             scene.add(targetClone);
             activeTargets.push(targetClone);
@@ -1458,15 +1441,6 @@
             });
 
             window.addEventListener('contextmenu', (e) => e.preventDefault());
-
-            // Desktop scroll-wheel proximity test
-            window.addEventListener('wheel', (e) => {
-                if (!isGameActive || !currentTarget) return;
-                targetAnchorDist = THREE.MathUtils.clamp(targetAnchorDist + e.deltaY * 0.001, 0.28, 2.40);
-                const dir = new THREE.Vector3().subVectors(currentTarget.position, camera.position).normalize();
-                currentTarget.position.copy(camera.position).addScaledVector(dir, targetAnchorDist);
-                maintainPortalScale(currentTarget);
-            }, { passive: true });
         });
     </script>
 </body>
