@@ -298,10 +298,20 @@
         // 3D Frisbee Variables
         let frisbeeMesh = null;
         let frisbeeActive = false;
-        let frisbeeVelocity = new THREE.Vector3();
+        let frisbeePhase = 'idle'; // 'idle' | 'flying' | 'entering'
+        let frisbeeStartPos = new THREE.Vector3();
+        let frisbeeControlPos = new THREE.Vector3();
         let frisbeeTargetPoint = new THREE.Vector3();
         let frisbeeFlightTime = 0;
+        let frisbeeFlightDuration = 0.62;
+        let frisbeeEnterTime = 0;
         let frisbeeIsHit = false;
+        let basketShakeTime = 0;
+
+        // Scoreboard Canvas Texture for the Front Face of the Pink 3D Block
+        let scoreCanvas = null;
+        let scoreCtx = null;
+        let scoreTexture = null;
 
         // Desktop Fallback Camera Aim Variables
         let isDraggingCamera = false;
@@ -335,6 +345,50 @@
             tex.wrapT = THREE.RepeatWrapping;
             tex.repeat.set(2, 2.5);
             return tex;
+        }
+
+        // Create and update the scoreboard texture rendered on the front face of the pink-topped 3D block
+        function createBlockScoreTexture() {
+            scoreCanvas = document.createElement('canvas');
+            scoreCanvas.width = 512;
+            scoreCanvas.height = 170;
+            scoreCtx = scoreCanvas.getContext('2d');
+            scoreTexture = new THREE.CanvasTexture(scoreCanvas);
+            scoreTexture.minFilter = THREE.LinearFilter;
+            scoreTexture.magFilter = THREE.LinearFilter;
+            updateBlockScoreDisplay(0);
+            return scoreTexture;
+        }
+
+        function updateBlockScoreDisplay(points) {
+            if (!scoreCtx || !scoreCanvas || !scoreTexture) return;
+            const w = scoreCanvas.width;
+            const h = scoreCanvas.height;
+
+            // Match the block's purple front face with a crisp pastel pink inner border
+            scoreCtx.fillStyle = '#6b205c';
+            scoreCtx.fillRect(0, 0, w, h);
+
+            scoreCtx.strokeStyle = '#f7cde4';
+            scoreCtx.lineWidth = 10;
+            scoreCtx.strokeRect(10, 10, w - 20, h - 20);
+
+            // Render point label and score value
+            scoreCtx.textAlign = 'center';
+            scoreCtx.textBaseline = 'middle';
+
+            scoreCtx.font = 'bold 34px sans-serif';
+            scoreCtx.fillStyle = '#f7cde4';
+            scoreCtx.fillText('POINTS', w * 0.30, h * 0.52);
+
+            scoreCtx.font = 'bold 96px sans-serif';
+            scoreCtx.lineWidth = 8;
+            scoreCtx.strokeStyle = '#1e081a';
+            scoreCtx.strokeText(String(points), w * 0.72, h * 0.54);
+            scoreCtx.fillStyle = '#ffffff';
+            scoreCtx.fillText(String(points), w * 0.72, h * 0.54);
+
+            scoreTexture.needsUpdate = true;
         }
 
         // Helper to build tapered olive-green tree trunks & branches
@@ -481,9 +535,14 @@
             const blockD = 0.018;
             const blockSideMat = new THREE.MeshStandardMaterial({ color: 0x6b205c, roughness: 0.5 });
             const blockTopMat = new THREE.MeshStandardMaterial({ color: 0xf7cde4, roughness: 0.4 });
+            const blockFrontMat = new THREE.MeshStandardMaterial({
+                map: createBlockScoreTexture(),
+                roughness: 0.45,
+                metalness: 0.05
+            });
             const blockGeo = new THREE.BoxGeometry(blockW, blockH, blockD);
             const blockMesh = new THREE.Mesh(blockGeo, [
-                blockSideMat, blockSideMat, blockTopMat, blockSideMat, blockSideMat, blockSideMat
+                blockSideMat, blockSideMat, blockTopMat, blockSideMat, blockFrontMat, blockSideMat
             ]);
             blockMesh.position.set(-baseW * 0.5 + blockW * 0.5 + 0.003, baseH + blockH * 0.5 - 0.002, baseD * 0.5 - blockD * 0.5 - 0.003);
             parkContentGroup.add(blockMesh);
@@ -535,6 +594,7 @@
             const basketGroup = new THREE.Group();
             basketGroup.name = 'disc-golf-basket';
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x8f99a3, roughness: 0.35, metalness: 0.7 });
+            const trayMat = new THREE.MeshStandardMaterial({ color: 0x8f99a3, roughness: 0.35, metalness: 0.7, side: THREE.DoubleSide });
             const purpleMat = new THREE.MeshStandardMaterial({ color: 0x6954d6, roughness: 0.3, metalness: 0.2 });
 
             const bPole = new THREE.Mesh(new THREE.CylinderGeometry(0.0014, 0.0018, 0.036, 8), metalMat);
@@ -545,24 +605,33 @@
             bBase.position.y = 0.001;
             basketGroup.add(bBase);
 
-            const bTray = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.0085, 0.006, 12, 1, true), metalMat);
+            const bTray = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.0085, 0.006, 12, 1, true), trayMat);
             bTray.position.y = 0.016;
             basketGroup.add(bTray);
+
+            const bTrayBottom = new THREE.Mesh(new THREE.CircleGeometry(0.0085, 12), trayMat);
+            bTrayBottom.rotation.x = -Math.PI / 2;
+            bTrayBottom.position.y = 0.0132;
+            basketGroup.add(bTrayBottom);
 
             const bTop = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 0.0045, 14), purpleMat);
             bTop.position.y = 0.034;
             basketGroup.add(bTop);
 
-            // Hanging chains
+            // Hanging chains grouped so they rattle when the frisbee enters
+            const chainsGroup = new THREE.Group();
+            chainsGroup.name = 'basket-chains';
+            chainsGroup.position.y = 0.032;
             const chainGeo = new THREE.CylinderGeometry(0.00045, 0.00045, 0.016, 4);
             for (let i = 0; i < 8; i++) {
                 const ang = (i / 8) * Math.PI * 2;
                 const chain = new THREE.Mesh(chainGeo, metalMat);
-                chain.position.set(Math.cos(ang) * 0.0075, 0.024, Math.sin(ang) * 0.0075);
+                chain.position.set(Math.cos(ang) * 0.0075, -0.008, Math.sin(ang) * 0.0075);
                 chain.rotation.z = Math.cos(ang) * 0.14;
                 chain.rotation.x = -Math.sin(ang) * 0.14;
-                basketGroup.add(chain);
+                chainsGroup.add(chain);
             }
+            basketGroup.add(chainsGroup);
 
             basketGroup.position.set(-0.022, baseH, 0.016);
             parkContentGroup.add(basketGroup);
@@ -808,7 +877,7 @@
             });
             frisbeeMesh = new THREE.Mesh(geo, mat);
             frisbeeMesh.visible = false;
-            frisbeeMesh.renderOrder = 2;
+            frisbeeMesh.renderOrder = 1;
             scene.add(frisbeeMesh);
         }
 
@@ -1197,25 +1266,32 @@
 
             frisbeeIsHit = Math.abs(powerPercent - targetPower) <= tolerance;
             frisbeeActive = true;
+            frisbeePhase = 'flying';
             frisbeeFlightTime = 0;
+            frisbeeEnterTime = 0;
+            frisbeeFlightDuration = 0.62;
 
             camera.updateMatrixWorld();
 
             // Launch frisbee slightly below the camera center
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
             const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-            const startPos = camera.position.clone()
-                .addScaledVector(forward, 0.16)
-                .addScaledVector(up, -0.07);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
 
-            frisbeeMesh.position.copy(startPos);
+            frisbeeStartPos.copy(camera.position)
+                .addScaledVector(forward, 0.18)
+                .addScaledVector(up, -0.075);
+
+            frisbeeMesh.position.copy(frisbeeStartPos);
             frisbeeMesh.quaternion.copy(camera.quaternion);
+            frisbeeMesh.scale.setScalar(0.85);
             frisbeeMesh.visible = true;
 
             if (frisbeeIsHit && currentTarget) {
                 const basket = currentTarget.getObjectByName('disc-golf-basket');
                 if (basket) {
                     basket.getWorldPosition(frisbeeTargetPoint);
+                    // Aim directly into the center of the hanging chains
                     frisbeeTargetPoint.y += 0.025 * (currentTarget.scale.y || PORTAL_BASE_SCALE);
                 } else {
                     frisbeeTargetPoint.copy(currentTarget.position);
@@ -1223,7 +1299,6 @@
             } else {
                 // Miss trajectory based on under-power vs over-power
                 const powerDelta = (powerPercent - targetPower) / 100;
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
                 const missDist = currentTarget ? currentTarget.position.distanceTo(camera.position) + 0.35 : 1.3;
                 frisbeeTargetPoint.copy(camera.position)
                     .addScaledVector(forward, missDist)
@@ -1231,8 +1306,10 @@
                     .addScaledVector(up, powerDelta * 0.65);
             }
 
-            const flightDuration = 0.55;
-            frisbeeVelocity.subVectors(frisbeeTargetPoint, startPos).divideScalar(flightDuration);
+            // Parabolic arc control point so the frisbee glides cleanly down into the basket
+            frisbeeControlPos.lerpVectors(frisbeeStartPos, frisbeeTargetPoint, 0.5)
+                .addScaledVector(up, 0.12)
+                .addScaledVector(right, frisbeeIsHit ? 0.04 : 0.0);
         }
 
         function handleMiss() {
@@ -1256,9 +1333,9 @@
             randomizeTargetLine();
         }
 
-        async function startGame(e) {
+        function startGame(e) {
             if (e) {
-                e.preventDefault();
+                if (e.cancelable) e.preventDefault();
                 e.stopPropagation();
             }
             if (hasGameStarted) return;
@@ -1268,19 +1345,18 @@
             if (scanBtn) {
                 scanBtn.style.opacity = '0';
                 scanBtn.style.pointerEvents = 'none';
-                setTimeout(() => { scanBtn.style.display = 'none'; }, 350);
+                setTimeout(() => {
+                    scanBtn.style.display = 'none';
+                }, 350);
             }
 
-            // Request iOS 13+ DeviceOrientation permission inside user gesture
+            // Request iOS 13+ gyroscope permission if available (non-blocking)
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    await DeviceOrientationEvent.requestPermission();
-                } catch (err) {
-                    console.warn('Orientation permission not granted:', err);
-                }
+                DeviceOrientationEvent.requestPermission().catch((err) => {
+                    console.warn('DeviceOrientation permission not granted:', err);
+                });
             }
 
-            // Start live camera feed without blocking Three.js setup
             startCameraFeed();
             initThreeJS();
             startScanningForReticle();
@@ -1289,12 +1365,26 @@
         function animate(now) {
             requestAnimationFrame(animate);
 
-            const dt = Math.min((now - lastTime) / 1000, 0.05);
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
-            // Update Power Meter while charging
+            // Update Camera Orientation (Mobile Gyroscope or Desktop Mouse Drag)
+            if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
+                controls.update();
+            } else if (camera) {
+                camera.rotation.y = cameraYaw;
+                camera.rotation.x = cameraPitch;
+            }
+
+            // Keep 3D park environment & occluder box anchored to the reticle at a locked scale
+            if (currentTarget) {
+                updateReticleAnchor(now);
+                maintainPortalScale(currentTarget);
+            }
+
+            // Update Power Slider Charge
             if (isCharging && isGameActive && !isGameOver) {
-                currentPower += powerDirection * chargeSpeed * dt;
+                currentPower += chargeSpeed * powerDirection * dt;
                 if (currentPower >= 100) {
                     currentPower = 100;
                     powerDirection = -1;
@@ -1306,41 +1396,97 @@
                 if (powerFill) powerFill.style.width = currentPower + '%';
             }
 
-            // Visual-Inertial Orientation + Live Reticle-Center World Anchoring
-            if (controls && controls.deviceOrientation && controls.deviceOrientation.alpha !== null) {
-                controls.update();
-            } else if (camera) {
-                camera.rotation.y = cameraYaw;
-                camera.rotation.x = cameraPitch;
-            }
-
-            if (camera) {
-                camera.updateMatrixWorld();
-            }
-
-            if (currentTarget) {
-                updateReticleAnchor(now);
-                maintainPortalScale(currentTarget);
-            }
-
-            // Update 3D Frisbee Flight & Scoring
+            // Update 3D Frisbee Flight, Basket Entry Perspective & Scoring
             if (frisbeeActive && frisbeeMesh) {
-                frisbeeFlightTime += dt;
-                frisbeeMesh.position.addScaledVector(frisbeeVelocity, dt);
-                frisbeeMesh.rotation.y += 22 * dt;
+                const portalScale = (currentTarget && currentTarget.scale.y) ? currentTarget.scale.y : PORTAL_BASE_SCALE;
 
-                const distToGoal = frisbeeMesh.position.distanceTo(frisbeeTargetPoint);
-                if (distToGoal < 0.065 || frisbeeFlightTime >= 0.62) {
-                    frisbeeActive = false;
-                    frisbeeMesh.visible = false;
+                if (frisbeePhase === 'flying') {
+                    frisbeeFlightTime += dt;
+                    const t = Math.min(frisbeeFlightTime / frisbeeFlightDuration, 1.0);
+                    const invT = 1 - t;
 
-                    if (frisbeeIsHit) {
-                        score++;
-                        showScorePopup();
-                        randomizeTargetLine();
-                    } else {
-                        handleMiss();
+                    // Keep target locked onto the basket's live world position during flight
+                    if (frisbeeIsHit && currentTarget) {
+                        const basket = currentTarget.getObjectByName('disc-golf-basket');
+                        if (basket) {
+                            basket.getWorldPosition(frisbeeTargetPoint);
+                            frisbeeTargetPoint.y += 0.025 * portalScale;
+                        }
                     }
+
+                    // Quadratic Bezier flight arc
+                    const posX = invT * invT * frisbeeStartPos.x + 2 * invT * t * frisbeeControlPos.x + t * t * frisbeeTargetPoint.x;
+                    const posY = invT * invT * frisbeeStartPos.y + 2 * invT * t * frisbeeControlPos.y + t * t * frisbeeTargetPoint.y;
+                    const posZ = invT * invT * frisbeeStartPos.z + 2 * invT * t * frisbeeControlPos.z + t * t * frisbeeTargetPoint.z;
+                    frisbeeMesh.position.set(posX, posY, posZ);
+
+                    // Perspective scale-down so the frisbee fits cleanly inside the disc golf basket chains & tray
+                    const targetEndScale = frisbeeIsHit ? 0.16 : 0.35;
+                    const curScale = THREE.MathUtils.lerp(0.85, targetEndScale, Math.pow(t, 0.85));
+                    frisbeeMesh.scale.setScalar(curScale);
+
+                    // Keep disc flat and spinning rapidly as it enters the basket
+                    frisbeeMesh.rotation.set(0.08 * (1 - t), frisbeeMesh.rotation.y + 24 * dt, 0.12 * (1 - t));
+
+                    if (t >= 1.0) {
+                        if (frisbeeIsHit) {
+                            frisbeePhase = 'entering';
+                            frisbeeEnterTime = 0;
+                            basketShakeTime = 0.45;
+                            score++;
+                            updateBlockScoreDisplay(score);
+                            showScorePopup();
+                        } else {
+                            frisbeeActive = false;
+                            frisbeePhase = 'idle';
+                            frisbeeMesh.visible = false;
+                            handleMiss();
+                        }
+                    }
+                } else if (frisbeePhase === 'entering') {
+                    // Frisbee hits the chains and drops smoothly down into the basket tray
+                    frisbeeEnterTime += dt;
+                    const enterDuration = 0.48;
+                    const dropT = Math.min(frisbeeEnterTime / 0.24, 1.0);
+                    const easedDrop = 1 - Math.pow(1 - dropT, 2);
+
+                    if (currentTarget) {
+                        const basket = currentTarget.getObjectByName('disc-golf-basket');
+                        if (basket) {
+                            const basketWorld = new THREE.Vector3();
+                            basket.getWorldPosition(basketWorld);
+                            const chainY = basketWorld.y + 0.025 * portalScale;
+                            const trayY = basketWorld.y + 0.0165 * portalScale;
+                            frisbeeMesh.position.set(
+                                basketWorld.x,
+                                THREE.MathUtils.lerp(chainY, trayY, easedDrop),
+                                basketWorld.z
+                            );
+                        }
+                    }
+
+                    // Slow spin and slight tilt as it settles inside the basket
+                    frisbeeMesh.scale.setScalar(0.155);
+                    frisbeeMesh.rotation.y += 8 * (1 - dropT) * dt;
+                    frisbeeMesh.rotation.x = 0.18 * (1 - dropT);
+
+                    if (frisbeeEnterTime >= enterDuration) {
+                        frisbeeActive = false;
+                        frisbeePhase = 'idle';
+                        frisbeeMesh.visible = false;
+                        randomizeTargetLine();
+                    }
+                }
+            }
+
+            // Subtle chain rattle animation when the frisbee hits the disc golf basket
+            if (basketShakeTime > 0 && currentTarget) {
+                basketShakeTime = Math.max(0, basketShakeTime - dt);
+                const chains = currentTarget.getObjectByName('basket-chains');
+                if (chains) {
+                    const damp = basketShakeTime / 0.45;
+                    chains.rotation.z = Math.sin(now * 0.055) * 0.22 * damp;
+                    chains.rotation.x = Math.cos(now * 0.048) * 0.16 * damp;
                 }
             }
 
