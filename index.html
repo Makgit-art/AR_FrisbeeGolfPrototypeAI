@@ -284,6 +284,7 @@
         const DIORAMA_WIDTH_M = 0.2159;  // 8.5 inches
         const DIORAMA_DEPTH_M = 0.2794;  // 11.0 inches
         const INITIAL_ANCHOR_DIST = 0.9144; // 3 feet initial distance
+        const PORTAL_BASE_SCALE = 2.0;   // Double the size of the 3D environment and occluder box
 
         // World-Space Anchor & Visual Reticle Tracking Variables
         let anchorQuaternion = new THREE.Quaternion();
@@ -1098,6 +1099,21 @@
             // Anchor the 3D environment & occluder box center to the reticle while keeping world orientation fixed
             currentTarget.position.lerp(desiredWorldPos, 0.65);
             currentTarget.quaternion.copy(anchorQuaternion);
+            maintainPortalScale(currentTarget);
+        }
+
+        // Maintain the doubled scale of the 3D environment and occluder box no matter how the camera moves
+        function maintainPortalScale(target) {
+            if (!target || !camera) return;
+            const currentDist = camera.position.distanceTo(target.position);
+            if (currentDist <= 0.001) return;
+
+            const maintainedScale = THREE.MathUtils.clamp(
+                PORTAL_BASE_SCALE * (currentDist / INITIAL_ANCHOR_DIST),
+                PORTAL_BASE_SCALE * 0.25,
+                PORTAL_BASE_SCALE * 4.0
+            );
+            target.scale.setScalar(maintainedScale);
         }
 
         function spawnTargetOnReticle() {
@@ -1124,6 +1140,10 @@
             const toCamZ = camera.position.z - scanPos.z;
             targetClone.rotation.set(0, Math.atan2(toCamX, toCamZ), 0);
             anchorQuaternion.copy(targetClone.quaternion);
+
+            // Double the initial scale of both the 3D environment and occluder box
+            targetClone.scale.setScalar(PORTAL_BASE_SCALE);
+            maintainPortalScale(targetClone);
 
             targetClone.userData.hitsRemaining = 3;
             currentAnchorDist = INITIAL_ANCHOR_DIST;
@@ -1213,7 +1233,7 @@
                 const basket = currentTarget.getObjectByName('disc-golf-basket');
                 if (basket) {
                     basket.getWorldPosition(frisbeeTargetPoint);
-                    frisbeeTargetPoint.y += 0.025;
+                    frisbeeTargetPoint.y += 0.025 * (currentTarget.scale.y || PORTAL_BASE_SCALE);
                 } else {
                     frisbeeTargetPoint.copy(currentTarget.position);
                 }
@@ -1317,6 +1337,7 @@
 
             if (currentTarget) {
                 updateReticleAnchor(now);
+                maintainPortalScale(currentTarget);
             }
 
             // Update 3D Frisbee Flight & Scoring
@@ -1444,6 +1465,7 @@
                 targetAnchorDist = THREE.MathUtils.clamp(targetAnchorDist + e.deltaY * 0.001, 0.28, 2.40);
                 const dir = new THREE.Vector3().subVectors(currentTarget.position, camera.position).normalize();
                 currentTarget.position.copy(camera.position).addScaledVector(dir, targetAnchorDist);
+                maintainPortalScale(currentTarget);
             }, { passive: true });
         });
     </script>
